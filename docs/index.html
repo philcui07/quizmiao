@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="css/style.css">
 <style>
 /* Toast 组件 */
-#toast { position:fixed; top:60px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,.78); color:#fff; font-size:13px; padding:10px 20px; border-radius:8px; z-index:9999; opacity:0; transition:opacity .25s; pointer-events:none; white-space:nowrap; max-width:80vw; overflow:hidden; text-overflow:ellipsis; }
+#toast { position:fixed; top:calc(60px + env(safe-area-inset-top, 0px)); left:50%; transform:translateX(-50%); background:rgba(0,0,0,.78); color:#fff; font-size:13px; padding:10px 20px; border-radius:8px; z-index:9999; opacity:0; transition:opacity .25s; pointer-events:none; white-space:nowrap; max-width:80vw; overflow:hidden; text-overflow:ellipsis; }
 #toast.show { opacity:1; }
 /* Loading */
 #loading-overlay { position:fixed; inset:0; background:rgba(255,255,255,.9); z-index:9998; display:none; flex-direction:column; align-items:center; justify-content:center; }
@@ -24,6 +24,16 @@
 </style>
 </head>
 <body>
+
+<!-- 导航栏（模拟小程序导航栏） -->
+<div class="nav-bar">
+  <div class="nav-bar-inner">
+    <div class="nav-back" id="nav-back" onclick="App.navigateBack(1)" style="display:none">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+    </div>
+    <div class="nav-title">出题喵喵</div>
+  </div>
+</div>
 
 <!-- Toast -->
 <div id="toast"></div>
@@ -149,8 +159,8 @@
   </div>
 </div>
 
-<script src="js/store.js?v=7"></script>
-<script src="js/api.js?v=7"></script>
-<script src="js/app.js?v=7"></script>
+<script src="js/store.js?v=8"></script>
+<script src="js/api.js?v=8"></script>
+<script src="js/app.js?v=8"></script>
 </body>
 </html>

@@ -43,6 +43,7 @@ const App = {
     this._showPage(current, false);
     this._history.push(page);
     this._showPage(page, true);
+    this._updateNavBar();
     window.scrollTo(0, 0);
   },
 
@@ -52,6 +53,7 @@ const App = {
     this._showPage(prev, false);
     this._history.push(page);
     this._showPage(page, true);
+    this._updateNavBar();
     window.scrollTo(0, 0);
   },
 
@@ -67,6 +69,7 @@ const App = {
 
     // 重新渲染当前页 (onShow)
     this._renderPage(current);
+    this._updateNavBar();
     window.scrollTo(0, 0);
   },
 
@@ -75,6 +78,7 @@ const App = {
     this._history.forEach(p => { if (p !== 'index') this._showPage(p, false); });
     this._history = ['index'];
     this._showPage('index', true);
+    this._updateNavBar();
     window.scrollTo(0, 0);
   },
 
@@ -84,12 +88,21 @@ const App = {
     this._history = ['index', 'confirm'];
     this._showPage('confirm', true);
     this.pages.confirm.render();
+    this._updateNavBar();
     window.scrollTo(0, 0);
   },
 
   _showPage(page, show) {
     const el = document.getElementById('page-' + page);
     if (el) el.style.display = show ? '' : 'none';
+  },
+
+  /** 更新导航栏返回箭头显隐 */
+  _updateNavBar() {
+    const back = document.getElementById('nav-back');
+    if (back) {
+      back.style.display = this._history.length > 1 ? 'flex' : 'none';
+    }
   },
 
   _renderPage(page) {
