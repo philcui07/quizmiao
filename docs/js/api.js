@@ -6,7 +6,7 @@
  * 例如: https://你的项目名.vercel.app
  */
 
-const WORKER_URL = 'https://philcui.top';
+const WORKER_URL = 'https://vercelapi.philcui.top';
 const FETCH_TIMEOUT = 15000;   // 网页抓取：15 秒
 const LLM_TIMEOUT = 120000;    // AI 出题 / 验证：120 秒
 
