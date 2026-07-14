@@ -28,33 +28,37 @@ body {
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   padding-bottom: 80px; /* 为底部固定栏留空间 */
-  padding-top: calc(48px + env(safe-area-inset-top, 0px)); /* 为导航栏留空间 */
+  padding-top: calc(44px + env(safe-area-inset-top, 0px)); /* 为导航栏留空间 */
 }
 
-/* ---- 导航栏（模拟小程序导航栏） ---- */
+/* ---- 导航栏（标准移动端标题栏，44px） ---- */
 .nav-bar {
   position: fixed; top: 0; left: 0; right: 0;
   background: var(--primary);
   z-index: 1000;
   padding-top: env(safe-area-inset-top, 0px);
-  box-shadow: 0 1px 4px rgba(0,0,0,.08);
 }
 .nav-bar-inner {
-  height: 48px;
+  height: 44px;
   display: flex; align-items: center; justify-content: center;
   position: relative;
   max-width: 500px; margin: 0 auto;
+  padding: 0 44px; /* 两侧留出返回按钮的空间 */
 }
 .nav-title {
   color: #fff; font-size: 17px; font-weight: 600;
-  letter-spacing: 1px;
+  letter-spacing: .5px; line-height: 44px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .nav-back {
-  position: absolute; left: 8px; top: 0; bottom: 0;
-  display: flex; align-items: center;
-  cursor: pointer; padding: 0 8px;
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: 44px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 .nav-back:active { opacity: .6; }
+.nav-back svg { display: block; }
 
 /* ---- 通用按钮 ---- */
 .btn {
