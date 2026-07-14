@@ -1,5 +1,12 @@
 {
+  "functions": {
+    "api/index.js": {
+      "runtime": "nodejs22.x",
+      "memory": 512,
+      "maxDuration": 30
+    }
+  },
   "rewrites": [
-    { "source": "/(.*)", "destination": "/api/index" }
+    { "source": "/:path*", "destination": "/api/index" }
   ]
 }
