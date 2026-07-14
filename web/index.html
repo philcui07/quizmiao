@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>出题喵喵 QuizMiao</title>
+<meta property="og:title" content="出题喵喵 · AI出题练习">
+<meta property="og:description" content="AI 自动生成练习题，覆盖多个知识点，随时随地巩固知识！">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:site_name" content="出题喵喵">
+<meta property="og:image" content="icon.png">
+<link rel="stylesheet" href="css/style.css">
+<style>
+/* Toast 组件 */
+#toast { position:fixed; top:60px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,.78); color:#fff; font-size:13px; padding:10px 20px; border-radius:8px; z-index:9999; opacity:0; transition:opacity .25s; pointer-events:none; white-space:nowrap; max-width:80vw; overflow:hidden; text-overflow:ellipsis; }
+#toast.show { opacity:1; }
+/* Loading */
+#loading-overlay { position:fixed; inset:0; background:rgba(255,255,255,.9); z-index:9998; display:none; flex-direction:column; align-items:center; justify-content:center; }
+#loading-overlay.show { display:flex; }
+</style>
+</head>
+<body>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<!-- Loading 遮罩 -->
+<div id="loading-overlay">
+  <div class="dot-spinner">
+    <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+  </div>
+  <div class="loading-text" id="loading-title"></div>
+  <div class="loading-sub" id="loading-sub"></div>
+</div>
+
+<!-- ====== Page: index (首页) ====== -->
+<div id="page-index" class="page">
+  <div class="card">
+    <div class="section-title">📝 输入知识内容</div>
+    <div class="section-desc">粘贴文本或多个链接，AI 自动生成练习题</div>
+
+    <div class="input-tabs">
+      <div class="input-tab active" data-tab="text" onclick="App.pages.index.switchTab('text')">📋 文本</div>
+      <div class="input-tab" data-tab="urls" onclick="App.pages.index.switchTab('urls')">🔗 链接</div>
+    </div>
+
+    <div id="tab-text">
+      <textarea class="input-area" id="manual-text" placeholder="在此粘贴知识点内容...&#10;例如：单词表、语法规则、数学公式等"></textarea>
+    </div>
+
+    <div id="tab-urls" style="display:none">
+      <div id="url-list"></div>
+      <button class="btn btn-outline btn-sm" onclick="App.pages.index.addUrl()" style="margin-top:4px">+ 添加链接</button>
+      <div class="msg msg-info" style="margin-top:8px">💡 支持多个网页链接，逐个抓取后合并出题。静态网页效果最佳。</div>
+    </div>
+
+    <div class="action-row">
+      <button class="btn btn-primary" id="btn-generate" onclick="App.pages.index.startGenerate()">生成练习题</button>
+      <div class="qty-row">
+        <span class="qty-label">题数</span>
+        <select id="qty-select" onchange="App.pages.index.onQtyChange(this.value)" class="qty-picker">
+          <option value="5">5</option>
+          <option value="10" selected>10</option>
+          <option value="30">30</option>
+          <option value="50">50</option>
+          <option value="99">99</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="index-error" class="msg msg-error" style="display:none"></div>
+  </div>
+
+  <div class="footer-text">出题喵喵 QuizMiao · AI 驱动 · 无需配置</div>
+</div>
+
+<!-- ====== Page: confirm (确认页) ====== -->
+<div id="page-confirm" class="page" style="display:none">
+  <div class="card">
+    <div class="section-title">✅ 已生成 <span id="confirm-count">0</span> 道题</div>
+    <div class="tags-row" id="confirm-tags"></div>
+  </div>
+
+  <div class="top-actions">
+    <button class="btn btn-primary btn-block" onclick="App.pages.confirm.startPractice()">开始练习</button>
+    <div style="display:flex;gap:10px;margin-top:10px">
+      <button class="btn btn-outline" onclick="App.share()">📤 分享</button>
+      <button class="btn btn-outline" onclick="App.goHome()">返回首页</button>
+    </div>
+  </div>
+
+  <div class="section-hint">题目列表</div>
+  <div class="qconf-list" id="confirm-list"></div>
+
+  <div class="bottom-bar">
+    <button class="btn btn-outline" onclick="App.goHome()">首页</button>
+    <button class="btn btn-outline" onclick="App.share()">📤 分享</button>
+    <button class="btn btn-outline" onclick="App.goHome()">重新生成</button>
+    <button class="btn btn-primary" onclick="App.pages.confirm.startPractice()">开始练习</button>
+  </div>
+</div>
+
+<!-- ====== Page: practice (练习页) ====== -->
+<div id="page-practice" class="page" style="display:none">
+  <div class="card">
+    <div class="practice-header">
+      <span class="progress-info" id="prac-progress">第 1/0 题</span>
+      <span class="progress-info" id="prac-score">得分 0</span>
+    </div>
+    <div class="progress-bar">
+      <div class="progress-fill" id="prac-bar" style="width:0%"></div>
+    </div>
+
+    <span class="q-tag" id="prac-cat"></span>
+    <div class="q-text" id="prac-question"></div>
+
+    <div class="option-list" id="prac-options"></div>
+
+    <div class="feedback" id="prac-feedback" style="display:none">
+      <div class="fb-result" id="prac-fb-result"></div>
+      <div class="fb-exp" id="prac-fb-exp"></div>
+    </div>
+
+    <div class="next-row">
+      <button class="btn btn-primary" id="btn-next" onclick="App.pages.practice.nextQ()" disabled>下一题 →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ====== Page: result (结果页) ====== -->
+<div id="page-result" class="page" style="display:none">
+  <div class="card result-wrap">
+    <div class="section-title">练习完成</div>
+    <div class="score-circle">
+      <span class="score-num" id="result-score">0/0</span>
+      <span class="score-pct" id="result-pct">正确率 0%</span>
+    </div>
+    <div class="result-desc" id="result-desc"></div>
+
+    <div class="result-btns">
+      <button class="btn btn-primary" onclick="App.pages.result.retry()">再做一次</button>
+      <button class="btn btn-outline" onclick="App.goConfirm()">题目列表</button>
+      <button class="btn btn-outline" onclick="App.goHome()">返回首页</button>
+    </div>
+  </div>
+
+  <div class="card wrong-section" id="wrong-section" style="display:none">
+    <div class="section-title">错题回顾（<span id="wrong-count">0</span> 道）</div>
+    <div id="wrong-list"></div>
+  </div>
+</div>
+
+<script src="js/store.js"></script>
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

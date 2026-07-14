@@ -1,0 +1,260 @@
+/* =================================================
+   出题喵喵 QuizMiao — Web 版全局样式
+   从小程序 app.wxss + 各页面 wxss 合并转换
+   ================================================= */
+
+/* ---- CSS 变量 (设计系统) ---- */
+:root {
+  --primary: #07C160;
+  --primary-d: #06AD56;
+  --danger: #FA5151;
+  --bg: #F6F6F6;
+  --card: #FFFFFF;
+  --text: #000000;
+  --text2: #576B95;
+  --text3: #999999;
+  --line: #E5E5E5;
+  --line2: #F0F0F0;
+}
+
+/* ---- Reset & Base ---- */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  padding-bottom: 80px; /* 为底部固定栏留空间 */
+}
+
+/* ---- 通用按钮 ---- */
+.btn {
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; font-size: 14px; font-weight: 600;
+  padding: 10px 20px; min-height: 44px;
+  border: none; cursor: pointer; transition: background .2s;
+  font-family: inherit;
+}
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: var(--primary-d); }
+.btn-primary:active:not(:disabled) { background: var(--primary-d); }
+.btn-outline { background: var(--card); color: var(--primary); border: 1px solid var(--primary); }
+.btn-outline:hover:not(:disabled) { background: #F0FFF4; }
+.btn-outline:active:not(:disabled) { background: #F0FFF4; }
+.btn-sm { padding: 6px 14px; font-size: 12px; min-height: 32px; }
+.btn-block { width: 100%; }
+
+/* ---- 卡片 ---- */
+.card {
+  background: var(--card); border-radius: 12px;
+  padding: 20px 16px; margin: 16px;
+}
+
+/* ---- 标签 ---- */
+.tag {
+  display: inline-block; font-size: 12px;
+  background: #E8F8EE; color: var(--primary-d);
+  padding: 3px 10px; border-radius: 4px;
+  margin: 2px 6px 2px 0; font-weight: 500;
+}
+
+/* ---- 提示信息 ---- */
+.msg { font-size: 12px; padding: 10px 12px; border-radius: 8px; margin-top: 10px; }
+.msg-error { background: #FFF0F0; color: var(--danger); }
+.msg-success { background: #F0FFF4; color: var(--primary-d); }
+.msg-info { background: #F0F7FF; color: var(--text2); }
+
+/* ---- 加载动画 ---- */
+.loading-box { text-align: center; padding: 48px 20px; }
+.dot-spinner { display: flex; gap: 6px; justify-content: center; margin-bottom: 20px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--primary); }
+@keyframes dotBounce {
+  0%,80%,100% { transform: scale(.6); opacity: .4; }
+  40% { transform: scale(1); opacity: 1; }
+}
+.dot:nth-child(1) { animation: dotBounce 1.2s infinite ease-in-out; }
+.dot:nth-child(2) { animation: dotBounce 1.2s .2s infinite ease-in-out; }
+.dot:nth-child(3) { animation: dotBounce 1.2s .4s infinite ease-in-out; }
+
+.loading-text { font-size: 14px; color: var(--text3); }
+.loading-sub { font-size: 12px; color: var(--text3); margin-top: 6px; }
+
+/* ---- 底部栏 ---- */
+.bottom-bar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: var(--card); border-top: 1px solid var(--line);
+  padding: 10px 16px; display: flex; gap: 10px;
+  padding-bottom: max(10px, env(safe-area-inset-bottom, 10px));
+  z-index: 100;
+}
+
+/* ---- 分割提示 ---- */
+.section-hint {
+  font-size: 12px; color: var(--text3); text-align: center;
+  padding: 8px 16px; display: flex; align-items: center; gap: 10px;
+}
+.section-hint::before, .section-hint::after {
+  content: ''; flex: 1; height: 1px; background: var(--line);
+}
+
+/* =================================================
+   首页 (index) 样式
+   ================================================= */
+.section-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+.section-desc { font-size: 14px; color: var(--text3); margin-bottom: 16px; }
+
+/* Tab 切换 */
+.input-tabs { display: flex; margin-bottom: 14px; border-bottom: 2px solid var(--line2); }
+.input-tab {
+  flex: 1; padding: 10px; text-align: center;
+  font-size: 15px; color: var(--text3); font-weight: 500;
+  border-bottom: 2px solid transparent; margin-bottom: -2px;
+  cursor: pointer; user-select: none; transition: color .2s;
+}
+.input-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+.input-tab:hover { color: var(--primary); }
+
+/* 输入框 */
+.input-area {
+  background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px; font-size: 14px; width: 100%;
+  box-sizing: border-box; min-height: 120px;
+  font-family: inherit; resize: vertical;
+}
+.input-area:focus { outline: none; border-color: var(--primary); }
+.input-inline { min-height: auto; }
+
+/* 多链接 */
+.url-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+.url-row .input-inline { flex: 1; padding: 10px 14px; min-height: auto; }
+.url-del {
+  width: 36px; height: 36px; border-radius: 8px;
+  background: var(--line2); display: flex;
+  align-items: center; justify-content: center;
+  font-size: 18px; color: var(--text3); flex-shrink: 0;
+  cursor: pointer; user-select: none;
+}
+.url-del:hover { background: #FFE0E0; color: var(--danger); }
+
+/* 操作区 */
+.action-row {
+  display: flex; gap: 10px; align-items: center;
+  flex-wrap: wrap; margin-top: 4px;
+}
+.qty-row { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+.qty-label { color: var(--text3); }
+.qty-picker {
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 14px; font-size: 14px; background: var(--card);
+  cursor: pointer; font-family: inherit;
+}
+.qty-picker:focus { outline: none; border-color: var(--primary); }
+
+/* 底部 */
+.footer-text {
+  font-size: 12px; color: var(--text3); text-align: center;
+  padding: 24px 0;
+}
+
+/* =================================================
+   确认页 (confirm) 样式
+   ================================================= */
+.tags-row { margin-top: 8px; }
+
+.top-actions { padding: 0 16px; margin-bottom: 14px; }
+
+.qconf-list { padding: 0 16px; }
+.qconf-card {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: 8px; padding: 14px; margin-bottom: 10px; position: relative;
+}
+.qconf-q { font-size: 14px; font-weight: 600; margin-bottom: 6px; padding-right: 30px; }
+.qconf-opts { font-size: 12px; color: var(--text3); }
+.qconf-ans { font-size: 12px; color: var(--primary-d); margin-top: 4px; }
+.qconf-del {
+  position: absolute; right: 10px; top: 10px;
+  width: 24px; height: 24px; border-radius: 50%;
+  background: var(--line2); display: flex;
+  align-items: center; justify-content: center;
+  font-size: 14px; color: var(--text3);
+  cursor: pointer; user-select: none;
+}
+.qconf-del:hover { background: #FFE0E0; color: var(--danger); }
+
+/* =================================================
+   练习页 (practice) 样式
+   ================================================= */
+.practice-header { display: flex; justify-content: space-between; margin-bottom: 12px; }
+.progress-info { font-size: 12px; color: var(--text3); }
+.progress-bar {
+  height: 4px; background: var(--line2); border-radius: 2px;
+  overflow: hidden; margin-bottom: 18px;
+}
+.progress-fill { height: 100%; background: var(--primary); border-radius: 2px; transition: width .3s; }
+
+.q-tag { display: inline-block; font-size: 12px; background: #E8F8EE; color: var(--primary-d); padding: 2px 8px; border-radius: 4px; margin-bottom: 12px; }
+.q-text { font-size: 17px; font-weight: 600; margin-bottom: 20px; line-height: 1.5; }
+
+.option-list { display: flex; flex-direction: column; gap: 10px; }
+.option-item {
+  border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px;
+  display: flex; gap: 10px; align-items: center; font-size: 15px;
+  background: var(--card); cursor: pointer; transition: background .15s;
+}
+.option-item:hover { background: var(--line2); }
+.option-item:active { background: var(--line2); }
+.opt-letter {
+  width: 28px; height: 28px; border-radius: 50%; background: var(--line2);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 12px; flex-shrink: 0; color: var(--text3);
+}
+.option-item.correct { border-color: var(--primary); background: #F0FFF4; }
+.option-item.correct .opt-letter { background: var(--primary); color: #fff; }
+.option-item.wrong { border-color: var(--danger); background: #FFF0F0; }
+.option-item.wrong .opt-letter { background: var(--danger); color: #fff; }
+
+.feedback {
+  margin-top: 16px; padding: 14px; border-radius: 8px;
+  background: var(--bg); font-size: 14px;
+}
+.fb-result { font-weight: 600; margin-bottom: 4px; }
+.fb-result.right { color: var(--primary-d); }
+.fb-result.wrong { color: var(--danger); }
+.fb-exp { font-size: 12px; color: var(--text3); }
+
+.next-row { display: flex; justify-content: flex-end; margin-top: 16px; }
+
+/* =================================================
+   结果页 (result) 样式
+   ================================================= */
+.result-wrap { text-align: center; }
+.result-wrap .section-title { font-size: 18px; font-weight: 700; }
+.score-circle {
+  width: 120px; height: 120px; border-radius: 50%;
+  background: #F0FFF4; margin: 16px auto;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+}
+.score-num { font-size: 40px; font-weight: 800; color: var(--primary); line-height: 1; }
+.score-pct { font-size: 12px; color: var(--text3); }
+.result-desc { font-size: 14px; color: var(--text3); margin-bottom: 20px; }
+.result-btns { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+
+.wrong-section { margin-top: 0; }
+.wrong-item { border-top: 1px solid var(--line2); padding: 12px 0; font-size: 14px; }
+.wq { font-weight: 600; margin-bottom: 4px; }
+.wa { color: var(--danger); }
+.wc { color: var(--primary-d); }
+.we { font-size: 12px; color: var(--text3); }
+
+/* ---- 响应式 PC 端居中 ---- */
+@media (min-width: 640px) {
+  .card { max-width: 500px; margin: 16px auto; }
+  .top-actions, .qconf-list, .bottom-bar-inner { max-width: 500px; margin: 0 auto; }
+  .bottom-bar { display: flex; justify-content: center; }
+  .bottom-bar > .btn { flex: 1; max-width: 120px; }
+}

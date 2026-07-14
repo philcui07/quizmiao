@@ -1,0 +1,7 @@
+{
+  "name": "quizmiao-proxy",
+  "version": "1.0.0",
+  "description": "QuizMiao backend proxy — Vercel Serverless Function",
+  "private": true,
+  "type": "module"
+}
