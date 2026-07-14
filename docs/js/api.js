@@ -6,7 +6,7 @@
  * 例如: https://你的项目名.vercel.app
  */
 
-const WORKER_URL = 'https://page-fetch.philcui.workers.dev';
+const WORKER_URL = 'https://quizmiao.vercel.app';
 const FETCH_TIMEOUT = 15000;   // 网页抓取：15 秒
 const LLM_TIMEOUT = 120000;    // AI 出题 / 验证：120 秒
 
