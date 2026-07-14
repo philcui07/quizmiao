@@ -144,9 +144,11 @@ const App = {
     /* ---- 首页 (index) ---- */
     index: {
       _urls: [''],
+      _activeTab: 'text',
 
       init() {
         this._urls = [''];
+        this._activeTab = 'text';
         this.renderUrls();
         document.getElementById('btn-generate').disabled = false;
         document.getElementById('btn-generate').textContent = '生成练习题';
@@ -154,6 +156,7 @@ const App = {
       },
 
       switchTab(tab) {
+        this._activeTab = tab;
         document.querySelectorAll('.input-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
         document.getElementById('tab-text').style.display = tab === 'text' ? '' : 'none';
         document.getElementById('tab-urls').style.display = tab === 'urls' ? '' : 'none';
@@ -193,9 +196,16 @@ const App = {
         const manualText = document.getElementById('manual-text').value.trim();
         const urls = this._urls.map(u => u.trim()).filter(u => u.length > 0);
         const count = parseInt(document.getElementById('qty-select').value);
+        const activeTab = this._activeTab || 'text';
 
-        if (!manualText && urls.length === 0) {
-          document.getElementById('index-error').textContent = '请粘贴文本或添加链接';
+        // 按焦点 tab 校验
+        if (activeTab === 'text' && !manualText) {
+          document.getElementById('index-error').textContent = '请粘贴文本内容';
+          document.getElementById('index-error').style.display = '';
+          return;
+        }
+        if (activeTab === 'urls' && urls.length === 0) {
+          document.getElementById('index-error').textContent = '请添加至少一个链接';
           document.getElementById('index-error').style.display = '';
           return;
         }
@@ -208,10 +218,13 @@ const App = {
         App.showLoading('正在准备...');
 
         try {
-          let content = manualText;
+          let content = '';
 
-          // 步骤1：多链接并行抓取
-          if (urls.length > 0) {
+          // 按焦点 tab 获取内容
+          if (activeTab === 'text') {
+            content = manualText;
+          } else {
+            // 链接 tab：并行抓取
             App.showLoading('正在抓取网页内容...');
             const fetchResults = await Promise.allSettled(
               urls.map(u => fetchPageContent(u))
