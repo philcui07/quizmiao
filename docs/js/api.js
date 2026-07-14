@@ -8,7 +8,7 @@
 
 const WORKER_URL = 'https://vercelapi.philcui.top';
 const FETCH_TIMEOUT = 15000;   // 网页抓取：15 秒
-const LLM_TIMEOUT = 120000;    // AI 出题 / 验证：120 秒
+const LLM_TIMEOUT = 60000;     // AI 出题：60 秒（优化后无需验证步骤）
 
 /**
  * HTTP 请求封装（对应小程序 wxRequest）

@@ -197,24 +197,22 @@ const App = {
         try {
           let content = manualText;
 
-          // 步骤1：多链接抓取
+          // 步骤1：多链接并行抓取
           if (urls.length > 0) {
             App.showLoading('正在抓取网页内容...');
+            const fetchResults = await Promise.allSettled(
+              urls.map(u => fetchPageContent(u))
+            );
             let fetchedCount = 0;
-            for (let i = 0; i < urls.length; i++) {
-              try {
-                const resp = await fetchPageContent(urls[i]);
-                if (resp.ok && resp.text) {
-                  content = content
-                    ? content + '\n\n--- 来源 ' + (i + 1) + ' ---\n' + resp.text
-                    : resp.text;
-                  fetchedCount++;
-                }
-              } catch (e) {
-                console.warn('抓取失败:', urls[i], e.message);
+            fetchResults.forEach((result, i) => {
+              if (result.status === 'fulfilled' && result.value.ok && result.value.text) {
+                content = content
+                  ? content + '\n\n--- 来源 ' + (i + 1) + ' ---\n' + result.value.text
+                  : result.value.text;
+                fetchedCount++;
               }
-            }
-            if (urls.length > 0 && fetchedCount === 0) {
+            });
+            if (fetchedCount === 0) {
               throw new Error('所有网页抓取均失败，请检查链接是否有效');
             }
           }
@@ -223,14 +221,14 @@ const App = {
             throw new Error('获取内容太少（需 ≥20 字符），请增加输入');
           }
 
-          // 步骤2：AI 出题
-          App.showLoading('AI 正在出题，约 30~90 秒...');
+          // 步骤2：AI 出题（含自检，无需二次验证）
+          App.showLoading('AI 正在出题，约 10~30 秒...');
           let llmResp;
           try {
             llmResp = await generateQuestions(content, count);
           } catch (e) {
             if (e.message && e.message.includes('timeout') || e.message.includes('超时')) {
-              throw new Error('AI 出题超时（已等待 2 分钟），请减少内容或题数后重试');
+              throw new Error('AI 出题超时（已等待 60 秒），请减少内容或题数后重试');
             }
             throw new Error('AI 出题失败: ' + (e.message || '服务器未响应'));
           }
@@ -241,17 +239,8 @@ const App = {
 
           let questions = llmResp.questions;
 
-          // 步骤3：二次验证（失败不影响结果）
-          if (questions.length >= 2) {
-            App.showLoading('验证题目准确性...');
-            try {
-              const verifyResp = await verifyQuestions(questions);
-              if (verifyResp && verifyResp.questions) {
-                questions = verifyResp.questions;
-              }
-            } catch (e) {
-              console.warn('验证跳过:', e.message);
-            }
+          if (llmResp.elapsed_ms) {
+            console.log(`[出题耗时] ${llmResp.elapsed_ms}ms`);
           }
 
           Store.questions = questions;

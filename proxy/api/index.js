@@ -153,7 +153,7 @@ function handleShare(encodedData, isCrawler, requestUrl, res) {
   return res.status(200).send(html);
 }
 
-// ---- LLM: generate quiz ----
+// ---- LLM: generate quiz (with inline self-verification) ----
 async function handleLLM(req, res) {
   const t0 = Date.now();
   try {
@@ -161,21 +161,22 @@ async function handleLLM(req, res) {
     const { content, count } = body;
     if (!content) return json(res, { ok: false, error: "缺少内容" }, 400);
 
-    const prompt = `你是一个专业的出题老师。请根据以下教学内容，生成 ${count || 10} 道 4选1 选择题。
+    const n = count || 10;
+    const prompt = `你是专业出题老师。根据以下内容出${n}道四选一选择题。
 
-教学内容：
-${content.slice(0, 12000)}
+内容：
+${content.slice(0, 8000)}
 
-输出 JSON 数组，格式：
-[{"cat":"知识点分类","q":"题干（填空题用 ______ 表示空位）","options":["A","B","C","D"],"answer":0,"exp":"解析"}]
+输出JSON数组：[{"cat":"分类","q":"题干","options":["A","B","C","D"],"answer":0,"exp":"解析"}]
 
-严格要求：
-1. 题干绝对不能出现正确选项的任何字眼
-2. 4个选项长度相近，干扰项有迷惑性
-3. 答案下标均匀分布
-4. 覆盖不同类型知识点
-5. 只输出 JSON 数组，不要其他文字`;
+要求：
+1.先答对再出题：每题答案必须100%正确，题干不含答案字眼
+2.选项长度相近，干扰项有迷惑性
+3.answer下标0-3均匀分布
+4.覆盖不同知识点
+5.只输出JSON`;
 
+    const t1 = Date.now();
     const resp = await fetch("https://api.deepseek.com/chat/completions", {
       method: "POST",
       headers: {
@@ -185,11 +186,13 @@ ${content.slice(0, 12000)}
       body: JSON.stringify({
         model: "deepseek-chat",
         messages: [{ role: "user", content: prompt }],
-        temperature: 0.75,
-        max_tokens: 8192,
+        temperature: 0.5,
+        max_tokens: 4096,
         stream: false,
       }),
     });
+    const t2 = Date.now();
+    console.log(`[LLM] API call took ${t2 - t1}ms`);
 
     if (!resp.ok) {
       return json(res, { ok: false, error: `API ${resp.status}` }, 502);
@@ -220,10 +223,12 @@ ${content.slice(0, 12000)}
     }
 
     const shuffled = shuffleUntilBalanced(valid);
+    const t3 = Date.now();
+    console.log(`[LLM] parse+validate took ${t3 - t2}ms, total ${t3 - t0}ms`);
     return json(res, {
       ok: true,
       questions: shuffled,
-      elapsed_ms: Date.now() - t0,
+      elapsed_ms: t3 - t0,
     });
   } catch (e) {
     return json(res, { ok: false, error: e.message }, 500);
