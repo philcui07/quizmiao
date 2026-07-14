@@ -1,11 +1,19 @@
-// Vercel Serverless Function — converted from Cloudflare Worker
-// Deploy to Vercel and set env var DEEPSEEK_API_KEY in dashboard
-
+// Vercel Serverless Function — 出题喵喵后端代理
+// 标准 Node.js (req, res) 模式
 const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY;
 
-export default async function handler(request) {
-  const url = new URL(request.url);
-  const ua = (request.headers.get("User-Agent") || "").toLowerCase();
+export default async function handler(req, res) {
+  // CORS
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
+  const url = new URL(req.url, `https://${req.headers.host}`);
+  const ua = (req.headers["user-agent"] || "").toLowerCase();
   const isWeChat = ua.includes("micromessenger") || ua.includes("wechat");
   const isCrawler =
     isWeChat ||
@@ -16,45 +24,58 @@ export default async function handler(request) {
     ua.includes("slack") ||
     ua.includes("telegram");
 
-  // CORS preflight
-  if (request.method === "OPTIONS") {
-    return new Response(null, {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-      },
+  try {
+    // ?url=xxx → fetch & extract text
+    const targetUrl = url.searchParams.get("url");
+    if (targetUrl) {
+      return await handleFetch(targetUrl, res);
+    }
+
+    // POST /llm → generate quiz questions
+    if (url.pathname === "/llm" && req.method === "POST") {
+      return await handleLLM(req, res);
+    }
+
+    // POST /verify → verify quiz answers
+    if (url.pathname === "/verify" && req.method === "POST") {
+      return await handleVerify(req, res);
+    }
+
+    // /s/:encodedData → share link with SEO meta
+    const shareMatch = url.pathname.match(/^\/s\/(.+)$/);
+    if (shareMatch) {
+      return handleShare(shareMatch[1], isCrawler, url, res);
+    }
+
+    // Default redirect
+    res.setHeader("Location", "https://philcui07.github.io/quizmiao/");
+    return res.status(302).end();
+  } catch (e) {
+    return json(res, { ok: false, error: e.message }, 500);
+  }
+}
+
+// ---- Helpers ----
+function json(res, data, status = 200) {
+  return res.status(status).json(data);
+}
+
+async function readBody(req) {
+  return new Promise((resolve) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      try {
+        resolve(JSON.parse(body));
+      } catch (_) {
+        resolve({});
+      }
     });
-  }
-
-  // ?url=xxx → fetch & extract text
-  const targetUrl = url.searchParams.get("url");
-  if (targetUrl) {
-    return handleFetch(targetUrl);
-  }
-
-  // POST /llm → generate quiz questions
-  if (url.pathname === "/llm" && request.method === "POST") {
-    return handleLLM(request);
-  }
-
-  // POST /verify → verify quiz answers
-  if (url.pathname === "/verify" && request.method === "POST") {
-    return handleVerify(request);
-  }
-
-  // /s/:encodedData → share link with SEO meta
-  const shareMatch = url.pathname.match(/^\/s\/(.+)$/);
-  if (shareMatch) {
-    return handleShare(shareMatch[1], isCrawler, url);
-  }
-
-  // Default redirect
-  return Response.redirect("https://philcui07.github.io/quizmiao/", 302);
+  });
 }
 
 // ---- Fetch & extract text ----
-async function handleFetch(targetUrl) {
+async function handleFetch(targetUrl, res) {
   try {
     const resp = await fetch(targetUrl, {
       headers: {
@@ -64,12 +85,13 @@ async function handleFetch(targetUrl) {
       redirect: "follow",
     });
     if (!resp.ok) {
-      return json({ ok: false, error: `HTTP ${resp.status}` }, 502);
+      return json(res, { ok: false, error: `HTTP ${resp.status}` }, 502);
     }
     const html = await resp.text();
     const text = extractText(html);
     if (text.length < 20) {
       return json(
+        res,
         {
           ok: false,
           error: "JS_RENDERED",
@@ -78,18 +100,19 @@ async function handleFetch(targetUrl) {
         502
       );
     }
-    return json({ ok: true, text: text.slice(0, 50000), length: text.length });
+    return json(res, { ok: true, text: text.slice(0, 50000), length: text.length });
   } catch (e) {
-    return json({ ok: false, error: e.message }, 502);
+    return json(res, { ok: false, error: e.message }, 502);
   }
 }
 
 // ---- Share page (SEO meta for crawlers) ----
-async function handleShare(encodedData, isCrawler, requestUrl) {
+function handleShare(encodedData, isCrawler, requestUrl, res) {
   const mainUrl = `https://philcui07.github.io/quizmiao/#q=${encodedData}`;
 
   if (!isCrawler) {
-    return Response.redirect(mainUrl, 302);
+    res.setHeader("Location", mainUrl);
+    return res.status(302).end();
   }
 
   let previewTitle = "出题喵喵 · AI出题练习";
@@ -126,18 +149,17 @@ async function handleShare(encodedData, isCrawler, requestUrl) {
 </body>
 </html>`;
 
-  return new Response(html, {
-    headers: { "Content-Type": "text/html; charset=utf-8" },
-  });
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  return res.status(200).send(html);
 }
 
 // ---- LLM: generate quiz ----
-async function handleLLM(request) {
+async function handleLLM(req, res) {
   const t0 = Date.now();
   try {
-    const body = await request.json();
+    const body = await readBody(req);
     const { content, count } = body;
-    if (!content) return json({ ok: false, error: "缺少内容" }, 400);
+    if (!content) return json(res, { ok: false, error: "缺少内容" }, 400);
 
     const prompt = `你是一个专业的出题老师。请根据以下教学内容，生成 ${count || 10} 道 4选1 选择题。
 
@@ -170,7 +192,7 @@ ${content.slice(0, 12000)}
     });
 
     if (!resp.ok) {
-      return json({ ok: false, error: `API ${resp.status}` }, 502);
+      return json(res, { ok: false, error: `API ${resp.status}` }, 502);
     }
 
     const data = await resp.json();
@@ -185,33 +207,36 @@ ${content.slice(0, 12000)}
     try {
       arr = JSON.parse(text);
     } catch (_) {
-      return json({ ok: false, error: "JSON 解析失败" }, 502);
+      return json(res, { ok: false, error: "JSON 解析失败" }, 502);
     }
 
     if (!Array.isArray(arr) || arr.length < 2) {
-      return json({ ok: false, error: "题目数量不足" }, 502);
+      return json(res, { ok: false, error: "题目数量不足" }, 502);
     }
 
     const valid = validateQuestions(arr);
     if (valid.length < 2) {
-      return json({ ok: false, error: "有效题目不足" }, 502);
+      return json(res, { ok: false, error: "有效题目不足" }, 502);
     }
 
     const shuffled = shuffleUntilBalanced(valid);
-    const elapsed = Date.now() - t0;
-    return json({ ok: true, questions: shuffled, elapsed_ms: elapsed });
+    return json(res, {
+      ok: true,
+      questions: shuffled,
+      elapsed_ms: Date.now() - t0,
+    });
   } catch (e) {
-    return json({ ok: false, error: e.message }, 500);
+    return json(res, { ok: false, error: e.message }, 500);
   }
 }
 
 // ---- LLM: verify answers ----
-async function handleVerify(request) {
+async function handleVerify(req, res) {
   try {
-    const body = await request.json();
+    const body = await readBody(req);
     const { questions } = body;
     if (!Array.isArray(questions) || questions.length === 0) {
-      return json({ ok: false, error: "缺少题目数据" }, 400);
+      return json(res, { ok: false, error: "缺少题目数据" }, 400);
     }
 
     const BATCH_SIZE = 20;
@@ -304,9 +329,9 @@ ${questionList}
       }
     }
 
-    return json({ ok: true, questions: verified });
+    return json(res, { ok: true, questions: verified });
   } catch (e) {
-    return json({ ok: false, error: e.message }, 500);
+    return json(res, { ok: false, error: e.message }, 500);
   }
 }
 
@@ -391,15 +416,4 @@ function extractText(html) {
     .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-}
-
-function json(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      "Access-Control-Allow-Origin": "*",
-      "Cache-Control": "public, max-age=300",
-    },
-  });
 }
