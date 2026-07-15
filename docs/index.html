@@ -13,7 +13,7 @@
 <meta property="og:locale" content="zh_CN">
 <meta property="og:site_name" content="出题喵喵">
 <meta property="og:image" content="icon.png">
-<link rel="stylesheet" href="css/style.css?v=10">
+<link rel="stylesheet" href="css/style.css?v=11">
 <style>
 /* Toast 组件 */
 #toast { position:fixed; top:calc(54px + env(safe-area-inset-top, 0px)); left:50%; transform:translateX(-50%); background:rgba(0,0,0,.78); color:#fff; font-size:13px; padding:10px 20px; border-radius:8px; z-index:9999; opacity:0; transition:opacity .25s; pointer-events:none; white-space:nowrap; max-width:80vw; overflow:hidden; text-overflow:ellipsis; }
@@ -98,8 +98,20 @@
   <div class="section-hint">题目列表</div>
   <div class="qconf-list" id="confirm-list"></div>
 
+  <!-- 流式加载指示器 -->
+  <div id="confirm-streaming-loader" class="confirm-streaming-loader" style="display:none">
+    <div class="dot-spinner">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    </div>
+    <div class="loading-text">AI 正在出题，约 10~30 秒...</div>
+    <div class="loading-sub" id="streaming-sub">已生成 0 题</div>
+  </div>
+
+  <!-- 错误提示 -->
+  <div id="confirm-error" class="msg msg-error" style="display:none; margin:16px;"></div>
+
   <div class="bottom-bar">
-    <button class="btn btn-primary btn-flex" onclick="App.pages.confirm.startPractice()">开始练习</button>
+    <button class="btn btn-primary btn-flex" id="btn-start-practice" onclick="App.pages.confirm.startPractice()" disabled>开始练习</button>
     <button class="btn btn-icon" onclick="App.share()">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
     </button>
@@ -159,8 +171,8 @@
   </div>
 </div>
 
-<script src="js/store.js?v=10"></script>
-<script src="js/api.js?v=10"></script>
-<script src="js/app.js?v=10"></script>
+<script src="js/store.js?v=11"></script>
+<script src="js/api.js?v=11"></script>
+<script src="js/app.js?v=11"></script>
 </body>
 </html>

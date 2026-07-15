@@ -31,9 +31,14 @@ export default async function handler(req, res) {
       return await handleFetch(targetUrl, res);
     }
 
-    // POST /llm → generate quiz questions
+    // POST /llm → generate quiz questions (non-streaming)
     if (url.pathname === "/llm" && req.method === "POST") {
       return await handleLLM(req, res);
+    }
+
+    // POST /llm-stream → generate quiz questions (SSE streaming)
+    if (url.pathname === "/llm-stream" && req.method === "POST") {
+      return await handleLLMStream(req, res);
     }
 
     // POST /verify → verify quiz answers
@@ -77,13 +82,18 @@ async function readBody(req) {
 // ---- Fetch & extract text ----
 async function handleFetch(targetUrl, res) {
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
     const resp = await fetch(targetUrl, {
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; QuizMiao/1.0)",
         Accept: "text/html,application/xhtml+xml",
       },
       redirect: "follow",
+      signal: controller.signal,
     });
+    clearTimeout(timer);
+
     if (!resp.ok) {
       return json(res, { ok: false, error: `HTTP ${resp.status}` }, 502);
     }
@@ -153,7 +163,7 @@ function handleShare(encodedData, isCrawler, requestUrl, res) {
   return res.status(200).send(html);
 }
 
-// ---- LLM: generate quiz (with inline self-verification) ----
+// ---- LLM: generate quiz (non-streaming, with inline self-verification) ----
 async function handleLLM(req, res) {
   const t0 = Date.now();
   try {
@@ -162,19 +172,7 @@ async function handleLLM(req, res) {
     if (!content) return json(res, { ok: false, error: "缺少内容" }, 400);
 
     const n = count || 10;
-    const prompt = `你是专业出题老师。根据以下内容出${n}道四选一选择题。
-
-内容：
-${content.slice(0, 8000)}
-
-输出JSON数组：[{"cat":"分类","q":"题干","options":["A","B","C","D"],"answer":0,"exp":"解析"}]
-
-要求：
-1.先答对再出题：每题答案必须100%正确，题干不含答案字眼
-2.选项长度相近，干扰项有迷惑性
-3.answer下标0-3均匀分布
-4.覆盖不同知识点
-5.只输出JSON`;
+    const prompt = buildPrompt(content, n);
 
     const t1 = Date.now();
     const resp = await fetch("https://api.deepseek.com/chat/completions", {
@@ -213,12 +211,12 @@ ${content.slice(0, 8000)}
       return json(res, { ok: false, error: "JSON 解析失败" }, 502);
     }
 
-    if (!Array.isArray(arr) || arr.length < 2) {
+    if (!Array.isArray(arr) || arr.length < 1) {
       return json(res, { ok: false, error: "题目数量不足" }, 502);
     }
 
     const valid = validateQuestions(arr);
-    if (valid.length < 2) {
+    if (valid.length < 1) {
       return json(res, { ok: false, error: "有效题目不足" }, 502);
     }
 
@@ -232,6 +230,181 @@ ${content.slice(0, 8000)}
     });
   } catch (e) {
     return json(res, { ok: false, error: e.message }, 500);
+  }
+}
+
+// ---- LLM: generate quiz with SSE streaming ----
+async function handleLLMStream(req, res) {
+  // SSE headers
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+
+  const body = await readBody(req);
+  const { content, count } = body;
+  if (!content) {
+    res.write(`data: ${JSON.stringify({ type: "error", error: "缺少内容" })}\n\n`);
+    return res.end();
+  }
+
+  const n = count || 10;
+  const prompt = buildPrompt(content, n);
+
+  try {
+    const resp = await fetch("https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + DEEPSEEK_KEY,
+      },
+      body: JSON.stringify({
+        model: "deepseek-chat",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.5,
+        max_tokens: 4096,
+        stream: true,
+      }),
+    });
+
+    if (!resp.ok) {
+      res.write(`data: ${JSON.stringify({ type: "error", error: `API ${resp.status}` })}\n\n`);
+      return res.end();
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let sseBuffer = "";
+    let contentBuffer = "";
+    let sentCount = 0;
+
+    // Send start event
+    res.write(`data: ${JSON.stringify({ type: "start", count: n })}\n\n`);
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      sseBuffer += decoder.decode(value, { stream: true });
+      const lines = sseBuffer.split("\n");
+      sseBuffer = lines.pop(); // keep incomplete line
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data: ")) continue;
+        const data = trimmed.slice(6);
+        if (data === "[DONE]") continue;
+
+        try {
+          const json = JSON.parse(data);
+          const delta = json.choices?.[0]?.delta?.content || "";
+          if (delta) contentBuffer += delta;
+        } catch (_) {}
+
+        // Try to extract complete JSON objects
+        const result = extractCompleteObjects(contentBuffer);
+        for (const q of result.objects) {
+          const valid = validateQuestion(q);
+          if (valid) {
+            sentCount++;
+            res.write(
+              `data: ${JSON.stringify({ type: "question", question: valid, index: sentCount })}\n\n`
+            );
+          }
+        }
+        contentBuffer = result.remaining;
+      }
+    }
+
+    // Process any remaining content
+    const finalResult = extractCompleteObjects(contentBuffer);
+    for (const q of finalResult.objects) {
+      const valid = validateQuestion(q);
+      if (valid) {
+        sentCount++;
+        res.write(
+          `data: ${JSON.stringify({ type: "question", question: valid, index: sentCount })}\n\n`
+        );
+      }
+    }
+
+    // Send done event
+    res.write(`data: ${JSON.stringify({ type: "done", count: sentCount })}\n\n`);
+    res.end();
+  } catch (e) {
+    res.write(`data: ${JSON.stringify({ type: "error", error: e.message })}\n\n`);
+    res.end();
+  }
+}
+
+// ---- Build prompt ----
+function buildPrompt(content, n) {
+  return `你是专业出题老师。根据以下内容出${n}道四选一选择题。
+
+内容：
+${content.slice(0, 8000)}
+
+输出JSON数组：[{"cat":"分类","q":"题干","options":["A","B","C","D"],"answer":0,"exp":"解析"}]
+
+要求：
+1.先答对再出题：每题答案必须100%正确，题干不含答案字眼
+2.选项长度相近，干扰项有迷惑性
+3.answer下标0-3均匀分布
+4.覆盖不同知识点
+5.只输出JSON`;
+}
+
+// ---- Extract complete JSON objects from streaming buffer ----
+function extractCompleteObjects(buffer) {
+  const objects = [];
+  let searchFrom = 0;
+
+  while (true) {
+    const start = buffer.indexOf("{", searchFrom);
+    if (start === -1) {
+      return { objects, remaining: "" };
+    }
+
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    let end = -1;
+
+    for (let i = start; i < buffer.length; i++) {
+      const c = buffer[i];
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (c === "\\") {
+        escape = true;
+        continue;
+      }
+      if (c === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (c === "{" || c === "[") depth++;
+      if (c === "}" || c === "]") depth--;
+      if (depth === 0 && c === "}") {
+        end = i;
+        break;
+      }
+    }
+
+    if (end === -1) {
+      // Incomplete object — keep from this brace
+      return { objects, remaining: buffer.slice(start) };
+    }
+
+    const objStr = buffer.slice(start, end + 1);
+    try {
+      const obj = JSON.parse(objStr);
+      objects.push(obj);
+    } catch (_) {}
+
+    searchFrom = end + 1;
   }
 }
 
@@ -341,34 +514,33 @@ ${questionList}
 }
 
 // ---- Validators & helpers ----
+
+/** Validate a single question object, return cleaned question or null */
+function validateQuestion(q) {
+  if (
+    !q.cat ||
+    !q.q ||
+    !Array.isArray(q.options) ||
+    q.options.length !== 4 ||
+    typeof q.answer !== "number" ||
+    !q.exp
+  )
+    return null;
+  if (q.answer < 0 || q.answer > 3) return null;
+
+  const opts = q.options.map((o) => String(o).trim());
+  if (new Set(opts).size !== 4 || opts.some((o) => !o)) return null;
+
+  // Relaxed: only reject extreme length disparity (8x instead of 3.5x)
+  const lens = opts.map((o) => o.length);
+  if (Math.min(...lens) > 0 && Math.max(...lens) / Math.min(...lens) > 8) return null;
+
+  return { cat: String(q.cat), q: String(q.q), options: opts, answer: q.answer, exp: String(q.exp) };
+}
+
+/** Validate an array of questions */
 function validateQuestions(arr) {
-  const valid = [];
-  for (const q of arr) {
-    if (
-      !q.cat ||
-      !q.q ||
-      !Array.isArray(q.options) ||
-      q.options.length !== 4 ||
-      typeof q.answer !== "number" ||
-      !q.exp
-    )
-      continue;
-    if (q.answer < 0 || q.answer > 3) continue;
-
-    const opts = q.options.map((o) => String(o).trim());
-    if (new Set(opts).size !== 4 || opts.some((o) => !o)) continue;
-
-    const ansText = opts[q.answer].toLowerCase();
-    const qText = q.q.toLowerCase();
-    const ansWords = ansText.split(/[\s,\.!\?，。！？、]+/).filter((w) => w.length >= 2);
-    if (ansWords.some((w) => qText.includes(w))) continue;
-
-    const lens = opts.map((o) => o.length);
-    if (Math.max(...lens) / Math.min(...lens) > 3.5) continue;
-
-    valid.push({ cat: q.cat, q: q.q, options: opts, answer: q.answer, exp: q.exp });
-  }
-  return valid;
+  return arr.map(validateQuestion).filter((q) => q !== null);
 }
 
 function shuffleAnswerOptions(questions) {

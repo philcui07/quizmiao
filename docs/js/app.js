@@ -1,7 +1,7 @@
 /**
  * 出题喵喵 QuizMiao — Web 版主应用
  * 对应小程序 pages 组件 + 导航系统
- * 
+ *
  * 页面路由: index / confirm / practice / result
  * 对应小程序的: wx.navigateTo / wx.redirectTo / wx.navigateBack
  */
@@ -9,6 +9,9 @@
 const App = {
   /* ---- 导航历史 (模拟页面栈) ---- */
   _history: ['index'],
+
+  /* ---- 流式请求控制器（用于取消） ---- */
+  _streamController: null,
 
   /* ==============================================
      通用 UI 工具
@@ -41,6 +44,8 @@ const App = {
   navigateTo(page) {
     const current = this._history[this._history.length - 1];
     this._showPage(current, false);
+    // 离开 confirm 时取消流式请求
+    if (current === 'confirm') this._cancelStream();
     this._history.push(page);
     this._showPage(page, true);
     this._updateNavBar();
@@ -51,6 +56,7 @@ const App = {
   redirectTo(page) {
     const prev = this._history.pop();
     this._showPage(prev, false);
+    if (prev === 'confirm') this._cancelStream();
     this._history.push(page);
     this._showPage(page, true);
     this._updateNavBar();
@@ -61,6 +67,7 @@ const App = {
   navigateBack(delta = 1) {
     while (delta > 0 && this._history.length > 1) {
       const prev = this._history.pop();
+      if (prev === 'confirm') this._cancelStream();
       this._showPage(prev, false);
       delta--;
     }
@@ -75,6 +82,7 @@ const App = {
 
   /** 返回首页 */
   goHome() {
+    this._cancelStream();
     this._history.forEach(p => { if (p !== 'index') this._showPage(p, false); });
     this._history = ['index'];
     this._showPage('index', true);
@@ -110,6 +118,14 @@ const App = {
       'confirm': () => this.pages.confirm.render(),
     };
     if (renderers[page]) renderers[page]();
+  },
+
+  /** 取消正在进行的流式请求 */
+  _cancelStream() {
+    if (this._streamController) {
+      this._streamController.abort();
+      this._streamController = null;
+    }
   },
 
   /* ==============================================
@@ -215,20 +231,18 @@ const App = {
         btn.textContent = '生成中...';
         document.getElementById('index-error').style.display = 'none';
 
-        App.showLoading('正在准备...');
+        let content = '';
 
         try {
-          let content = '';
-
-          // 按焦点 tab 获取内容
           if (activeTab === 'text') {
             content = manualText;
           } else {
-            // 链接 tab：并行抓取
+            // 链接 tab：并行抓取（在首页显示 loading）
             App.showLoading('正在抓取网页内容...');
             const fetchResults = await Promise.allSettled(
               urls.map(u => fetchPageContent(u))
             );
+            App.hideLoading();
             let fetchedCount = 0;
             fetchResults.forEach((result, i) => {
               if (result.status === 'fulfilled' && result.value.ok && result.value.text) {
@@ -239,77 +253,170 @@ const App = {
               }
             });
             if (fetchedCount === 0) {
-              throw new Error('所有网页抓取均失败，请检查链接是否有效');
+              btn.disabled = false;
+              btn.textContent = '生成练习题';
+              document.getElementById('index-error').textContent = '所有网页抓取均失败，请检查链接是否有效';
+              document.getElementById('index-error').style.display = '';
+              return;
             }
           }
 
           if (!content || content.length < 20) {
-            throw new Error('获取内容太少（需 ≥20 字符），请增加输入');
+            btn.disabled = false;
+            btn.textContent = '生成练习题';
+            document.getElementById('index-error').textContent = '获取内容太少（需 ≥20 字符），请增加输入';
+            document.getElementById('index-error').style.display = '';
+            return;
           }
 
-          // 步骤2：AI 出题（含自检，无需二次验证）
-          App.showLoading('AI 正在出题，约 10~30 秒...');
-          let llmResp;
-          try {
-            llmResp = await generateQuestions(content, count);
-          } catch (e) {
-            if (e.message && e.message.includes('timeout') || e.message.includes('超时')) {
-              throw new Error('AI 出题超时（已等待 60 秒），请减少内容或题数后重试');
-            }
-            throw new Error('AI 出题失败: ' + (e.message || '服务器未响应'));
-          }
-
-          if (!llmResp || !llmResp.questions || llmResp.questions.length < 2) {
-            throw new Error('AI 生成题目不足（需 ≥2 道），请增加内容后重试');
-          }
-
-          let questions = llmResp.questions;
-
-          if (llmResp.elapsed_ms) {
-            console.log(`[出题耗时] ${llmResp.elapsed_ms}ms`);
-          }
-
-          Store.questions = questions;
-          App.hideLoading();
-          App.pages.confirm.render();
+          // 立即跳转到确认页，开始流式出题
+          Store.questions = [];
           App.navigateTo('confirm');
+          App.pages.confirm.startStreaming(content, count);
 
         } catch (err) {
           App.hideLoading();
+          btn.disabled = false;
+          btn.textContent = '生成练习题';
           const msg = err.message || '生成失败，请重试';
           document.getElementById('index-error').textContent = msg;
           document.getElementById('index-error').style.display = '';
           App.toast(msg, 3000);
-        } finally {
-          btn.disabled = false;
-          btn.textContent = '生成练习题';
         }
       }
     },
 
-    /* ---- 确认页 (confirm) ---- */
+    /* ---- 确认页 (confirm) — 支持流式渲染 ---- */
     confirm: {
-      render() {
-        const qs = Store.questions || [];
-        document.getElementById('confirm-count').textContent = qs.length;
+      _streaming: false,
 
-        // 分类标签
+      /** 开始流式出题 */
+      startStreaming(content, count) {
+        this._streaming = true;
+        Store.questions = [];
+
+        // 重置 UI
+        document.getElementById('confirm-count').textContent = '0';
+        document.getElementById('confirm-tags').innerHTML = '';
+        document.getElementById('confirm-list').innerHTML = '';
+        document.getElementById('confirm-streaming-loader').style.display = '';
+        document.getElementById('btn-start-practice').disabled = true;
+        document.getElementById('confirm-error').style.display = 'none';
+
+        // 更新标题
+        document.querySelector('#page-confirm .section-title').innerHTML = '⏳ AI 正在出题...';
+
+        // 启动 SSE 流
+        App._streamController = streamGenerateQuestions(content, count, {
+          onStart: (total) => {
+            document.getElementById('streaming-sub').textContent = `目标 ${total} 题，已生成 0 题`;
+          },
+          onQuestion: (q, count) => {
+            this._appendQuestion(q, count);
+          },
+          onDone: (questions) => {
+            this._streaming = false;
+            App._streamController = null;
+            Store.questions = questions;
+            document.getElementById('confirm-streaming-loader').style.display = 'none';
+            document.getElementById('btn-start-practice').disabled = questions.length === 0;
+
+            // 更新标题
+            document.querySelector('#page-confirm .section-title').innerHTML =
+              `✅ 已生成 <span id="confirm-count">${questions.length}</span> 道题`;
+
+            // 重新渲染标签和计数
+            this._updateTags(questions);
+
+            if (questions.length === 0) {
+              this._showError('AI 未生成有效题目，请增加内容后重试');
+            }
+
+            // 恢复首页按钮
+            const btn = document.getElementById('btn-generate');
+            btn.disabled = false;
+            btn.textContent = '生成练习题';
+          },
+          onError: (msg) => {
+            this._streaming = false;
+            App._streamController = null;
+            document.getElementById('confirm-streaming-loader').style.display = 'none';
+            this._showError(msg || 'AI 出题失败，请重试');
+
+            const btn = document.getElementById('btn-generate');
+            btn.disabled = false;
+            btn.textContent = '生成练习题';
+          }
+        });
+      },
+
+      /** 追加一道题目到列表 */
+      _appendQuestion(q, count) {
+        const list = document.getElementById('confirm-list');
+        const i = count - 1; // 0-based index
+        const letters = ['A', 'B', 'C', 'D'];
+
+        const card = document.createElement('div');
+        card.className = 'qconf-card';
+        card.dataset.idx = i;
+        card.innerHTML = `
+          <div class="qconf-q">${i + 1}. [${App._esc(q.cat)}] ${App._esc(q.q)}</div>
+          <div class="qconf-opts">${q.options.map((o, oi) =>
+            `${App._esc(letters[oi])}. ${App._esc(o)}`
+          ).join(' &nbsp;')}</div>
+          <div class="qconf-ans">
+            答案：${App._esc(letters[q.answer])}. ${App._esc(q.options[q.answer])}
+          </div>
+          <div class="qconf-del" onclick="App.pages.confirm.delQ(${i})">×</div>
+        `;
+        list.appendChild(card);
+
+        // 实时更新计数
+        document.getElementById('confirm-count').textContent = count;
+        const sub = document.getElementById('streaming-sub');
+        if (sub) sub.textContent = `已生成 ${count} 题`;
+
+        // 实时更新标签
+        const questions = Store.questions.concat([q]);
+        Store.questions = questions;
+        this._updateTags(questions);
+      },
+
+      /** 更新标签 */
+      _updateTags(questions) {
         const catMap = {};
-        qs.forEach(q => { catMap[q.cat] = (catMap[q.cat] || 0) + 1; });
+        questions.forEach(q => { catMap[q.cat] = (catMap[q.cat] || 0) + 1; });
         const tags = Object.entries(catMap).map(([name, count]) => ({ name, count }));
         document.getElementById('confirm-tags').innerHTML = tags.map(t =>
           `<span class="tag">${App._esc(t.name)} ×${t.count}</span>`
         ).join('');
+      },
 
-        // 题目列表
+      /** 显示错误 */
+      _showError(msg) {
+        const el = document.getElementById('confirm-error');
+        el.textContent = msg;
+        el.style.display = '';
+      },
+
+      /** 全量渲染（删除题目后调用） */
+      render() {
+        const qs = Store.questions || [];
+        document.getElementById('confirm-count').textContent = qs.length;
+        document.querySelector('#page-confirm .section-title').innerHTML =
+          `✅ 已生成 <span id="confirm-count">${qs.length}</span> 道题`;
+
+        this._updateTags(qs);
+
+        const letters = ['A', 'B', 'C', 'D'];
         document.getElementById('confirm-list').innerHTML = qs.map((q, i) => `
           <div class="qconf-card">
             <div class="qconf-q">${i + 1}. [${App._esc(q.cat)}] ${App._esc(q.q)}</div>
             <div class="qconf-opts">${q.options.map((o, oi) =>
-              `${App._esc(['A','B','C','D'][oi])}. ${App._esc(o)}`
+              `${App._esc(letters[oi])}. ${App._esc(o)}`
             ).join(' &nbsp;')}</div>
             <div class="qconf-ans">
-              答案：${App._esc(['A','B','C','D'][q.answer])}. ${App._esc(q.options[q.answer])}
+              答案：${App._esc(letters[q.answer])}. ${App._esc(q.options[q.answer])}
             </div>
             <div class="qconf-del" onclick="App.pages.confirm.delQ(${i})">×</div>
           </div>
@@ -318,6 +425,9 @@ const App = {
         if (qs.length === 0) {
           document.getElementById('confirm-list').innerHTML = '<div class="msg" style="text-align:center;color:var(--text3)">暂无题目</div>';
         }
+
+        document.getElementById('confirm-streaming-loader').style.display = 'none';
+        document.getElementById('btn-start-practice').disabled = qs.length === 0;
       },
 
       delQ(idx) {
@@ -332,6 +442,7 @@ const App = {
       },
 
       startPractice() {
+        if (this._streaming) return;
         Store.preparePool();
         App.pages.practice.render();
         App.navigateTo('practice');
