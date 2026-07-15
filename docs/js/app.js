@@ -315,6 +315,11 @@ const App = {
             this._appendQuestion(q, count);
           },
           onDone: (questions) => {
+            // If SSE returned 0 questions, fall back to non-streaming
+            if (questions.length === 0) {
+              this._fallbackToNonStreaming(content, count);
+              return;
+            }
             this._streaming = false;
             App._streamController = null;
             Store.questions = questions;
@@ -340,14 +345,56 @@ const App = {
           onError: (msg) => {
             this._streaming = false;
             App._streamController = null;
+
+            // If SSE failed and no questions received yet, fall back to non-streaming
+            if (Store.questions.length === 0) {
+              this._fallbackToNonStreaming(content, count);
+              return;
+            }
+
+            // Partial failure — show what we have
             document.getElementById('confirm-streaming-loader').style.display = 'none';
-            this._showError(msg || 'AI 出题失败，请重试');
+            if (Store.questions.length > 0) {
+              this.render();
+            } else {
+              this._showError(msg || 'AI 出题失败，请重试');
+            }
 
             const btn = document.getElementById('btn-generate');
             btn.disabled = false;
             btn.textContent = '生成练习题';
           }
         });
+      },
+
+      /** 降级：非流式出题（SSE 不可用时自动回退） */
+      async _fallbackToNonStreaming(content, count) {
+        document.getElementById('streaming-sub').textContent = '正在出题（约 10~30 秒）...';
+        document.getElementById('confirm-streaming-loader').style.display = '';
+
+        try {
+          const resp = await generateQuestions(content, count);
+          if (resp && resp.questions && resp.questions.length > 0) {
+            Store.questions = resp.questions;
+            this._streaming = false;
+            document.getElementById('confirm-streaming-loader').style.display = 'none';
+            this.render();
+
+            const btn = document.getElementById('btn-generate');
+            btn.disabled = false;
+            btn.textContent = '生成练习题';
+          } else {
+            throw new Error(resp && resp.error ? resp.error : 'AI 未生成有效题目');
+          }
+        } catch (err) {
+          this._streaming = false;
+          document.getElementById('confirm-streaming-loader').style.display = 'none';
+          this._showError(err.message || 'AI 出题失败，请重试');
+
+          const btn = document.getElementById('btn-generate');
+          btn.disabled = false;
+          btn.textContent = '生成练习题';
+        }
       },
 
       /** 追加一道题目到列表 */

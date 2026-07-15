@@ -82,7 +82,14 @@ function streamGenerateQuestions(content, count, { onStart, onQuestion, onDone, 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content, count }),
         signal: controller.signal,
+        redirect: 'error', // Don't follow redirects (detect if endpoint doesn't exist)
       });
+
+      // If response is not SSE, fall back to non-streaming
+      const ct = resp.headers.get('Content-Type') || '';
+      if (!ct.includes('text/event-stream')) {
+        throw new Error('SSE_NOT_AVAILABLE');
+      }
 
       if (!resp.ok) {
         throw new Error('HTTP ' + resp.status);
