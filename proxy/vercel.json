@@ -1,9 +1,8 @@
 {
   "functions": {
     "api/index.js": {
-      "runtime": "nodejs22.x",
-      "memory": 512,
-      "maxDuration": 60
+      "maxDuration": 60,
+      "memory": 512
     }
   },
   "rewrites": [
