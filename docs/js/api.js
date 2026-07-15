@@ -47,7 +47,7 @@ async function httpRequest(url, method = 'GET', data = null, timeout = 15000) {
  */
 async function fetchPageContent(targetUrl) {
   const resp = await httpRequest(
-    `${WORKER_URL}/?url=${encodeURIComponent(targetUrl)}`,
+    `${WORKER_URL}/api?url=${encodeURIComponent(targetUrl)}`,
     'GET', null, FETCH_TIMEOUT
   );
   return resp;
