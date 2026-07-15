@@ -182,7 +182,7 @@ async function handleLLM(req, res) {
         Authorization: "Bearer " + DEEPSEEK_KEY,
       },
       body: JSON.stringify({
-        model: "deepseek-chat",
+        model: "deepseek-v4-flash",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.5,
         max_tokens: 8192,
@@ -259,7 +259,7 @@ async function handleLLMStream(req, res) {
         Authorization: "Bearer " + DEEPSEEK_KEY,
       },
       body: JSON.stringify({
-        model: "deepseek-chat",
+        model: "deepseek-v4-flash",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.5,
         max_tokens: 8192,
@@ -449,7 +449,7 @@ ${questionList}
             Authorization: "Bearer " + DEEPSEEK_KEY,
           },
           body: JSON.stringify({
-            model: "deepseek-chat",
+            model: "deepseek-v4-flash",
             messages: [{ role: "user", content: verifyPrompt }],
             temperature: 0.3,
             max_tokens: 4096,
