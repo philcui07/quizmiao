@@ -185,7 +185,7 @@ async function handleLLM(req, res) {
         model: "deepseek-chat",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.5,
-        max_tokens: 4096,
+        max_tokens: 8192,
         stream: false,
       }),
     });
@@ -262,7 +262,7 @@ async function handleLLMStream(req, res) {
         model: "deepseek-chat",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.5,
-        max_tokens: 4096,
+        max_tokens: 8192,
         stream: true,
       }),
     });
