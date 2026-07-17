@@ -13,7 +13,7 @@
 <meta property="og:locale" content="zh_CN">
 <meta property="og:site_name" content="出题喵喵">
 <meta property="og:image" content="icon.png">
-<link rel="stylesheet" href="css/style.css?v=12">
+<link rel="stylesheet" href="css/style.css?v=13">
 <style>
 /* Toast 组件 */
 #toast { position:fixed; top:calc(54px + env(safe-area-inset-top, 0px)); left:50%; transform:translateX(-50%); background:rgba(0,0,0,.78); color:#fff; font-size:13px; padding:10px 20px; border-radius:8px; z-index:9999; opacity:0; transition:opacity .25s; pointer-events:none; white-space:nowrap; max-width:80vw; overflow:hidden; text-overflow:ellipsis; }
@@ -168,8 +168,33 @@
   </div>
 </div>
 
-<script src="js/store.js?v=12"></script>
-<script src="js/api.js?v=12"></script>
-<script src="js/app.js?v=12"></script>
+<!-- 分享弹窗 -->
+<div id="share-modal" class="modal" style="display:none">
+  <div class="modal-mask" onclick="App.closeShareModal()"></div>
+  <div class="modal-content">
+    <div class="modal-title">分享给好友</div>
+    <div class="modal-desc">选择分享方式，内容将自动复制到剪贴板</div>
+    <div class="modal-options">
+      <button class="modal-option" onclick="App._doShareLink()">
+        <div class="modal-opt-icon">🔗</div>
+        <div class="modal-opt-label">分享链接</div>
+      </button>
+      <button class="modal-option" onclick="App._doShareQR()">
+        <div class="modal-opt-icon">📷</div>
+        <div class="modal-opt-label">分享二维码</div>
+      </button>
+    </div>
+    <div id="share-qr-wrap" style="display:none">
+      <div class="qr-hint">长按图片保存或复制</div>
+      <img id="share-qr-img" src="" alt="分享二维码" />
+      <div class="qr-caption" id="share-qr-caption"></div>
+    </div>
+    <button class="modal-close" onclick="App.closeShareModal()">取消</button>
+  </div>
+</div>
+
+<script src="js/store.js?v=13"></script>
+<script src="js/api.js?v=13"></script>
+<script src="js/app.js?v=13"></script>
 </body>
 </html>

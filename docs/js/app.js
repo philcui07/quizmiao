@@ -135,28 +135,113 @@ const App = {
      分享功能 (对应 wx.onShareAppMessage)
      ============================================== */
 
-  async share() {
-    const qs = Store.questions || [];
-    const title = `出题喵喵 · ${qs.length}道练习题`;
-    const text = `涵盖 ${[...new Set(qs.map(q => q.cat))].slice(0, 3).join('、')} 等知识点，来一起做题吧！`;
+  /* ==============================================
+     分享功能 (弹窗选择: 链接 / 二维码)
+     ============================================== */
 
-    // 构建分享链接（带题目数据，指向确认页）
-    let shareUrl = window.location.origin + window.location.pathname;
-    if (this._shareData) {
-      shareUrl += '#q=' + this._shareData;
+  /** 打开分享弹窗 */
+  openShareModal() {
+    document.getElementById('share-qr-wrap').style.display = 'none';
+    document.getElementById('share-modal').style.display = '';
+  },
+
+  /** 关闭分享弹窗 */
+  closeShareModal() {
+    document.getElementById('share-modal').style.display = 'none';
+    document.getElementById('share-qr-wrap').style.display = 'none';
+  },
+
+  async share() {
+    this.openShareModal();
+  },
+
+  /** 分享链接：后端存数据 → 短 ID → 复制到剪贴板 */
+  async _doShareLink() {
+    const qs = Store.questions || [];
+    if (qs.length === 0) {
+      this.toast('暂无题目可分享');
+      this.closeShareModal();
+      return;
     }
 
-    if (navigator.share) {
-      try {
-        await navigator.share({ title, text, url: shareUrl });
-      } catch (_) { /* 用户取消 */ }
-    } else {
-      try {
-        await navigator.clipboard.writeText(shareUrl);
-        this.toast('链接已复制，粘贴给好友即可分享');
-      } catch (_) {
-        this.toast('分享链接：' + shareUrl);
+    try {
+      this.showLoading('正在生成分享链接...');
+      const resp = await fetch('/api/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ questions: qs })
+      });
+      const data = await resp.json();
+      this.hideLoading();
+
+      if (!data.ok || !data.id) {
+        this.toast('分享失败，请重试');
+        this.closeShareModal();
+        return;
       }
+
+      const shortUrl = window.location.origin + window.location.pathname + '#s=' + data.id;
+      await navigator.clipboard.writeText(shortUrl);
+      this.toast('链接已复制，可在任意聊天窗口粘贴分享');
+      this.closeShareModal();
+    } catch (e) {
+      this.hideLoading();
+      this.toast('分享失败：' + (e.message || '网络错误'));
+      this.closeShareModal();
+    }
+  },
+
+  /** 分享二维码：后端存数据 → 短 ID → 生成二维码 → 复制到剪贴板 */
+  async _doShareQR() {
+    const qs = Store.questions || [];
+    if (qs.length === 0) {
+      this.toast('暂无题目可分享');
+      this.closeShareModal();
+      return;
+    }
+
+    try {
+      this.showLoading('正在生成二维码...');
+      const resp = await fetch('/api/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ questions: qs })
+      });
+      const data = await resp.json();
+      this.hideLoading();
+
+      if (!data.ok || !data.id) {
+        this.toast('分享失败，请重试');
+        this.closeShareModal();
+        return;
+      }
+
+      const shortUrl = window.location.origin + window.location.pathname + '#s=' + data.id;
+      const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(shortUrl);
+
+      // 显示二维码
+      document.getElementById('share-qr-img').src = qrUrl;
+      document.getElementById('share-qr-caption').textContent = '出题喵喵 · ' + qs.length + '道题';
+      document.getElementById('share-qr-wrap').style.display = '';
+
+      // 尝试复制图片到剪贴板
+      try {
+        const imgResp = await fetch(qrUrl);
+        const blob = await imgResp.blob();
+        if (navigator.clipboard && navigator.clipboard.write) {
+          const item = new ClipboardItem({ 'image/png': blob });
+          await navigator.clipboard.write([item]);
+          this.toast('二维码已复制，可在任意聊天窗口粘贴');
+        } else {
+          this.toast('二维码已生成，请长按图片保存');
+        }
+      } catch (e) {
+        this.toast('二维码已生成，请长按图片保存');
+      }
+    } catch (e) {
+      this.hideLoading();
+      this.toast('分享失败：' + (e.message || '网络错误'));
+      this.closeShareModal();
     }
   },
 
@@ -720,50 +805,82 @@ const App = {
       .replace(/"/g, '&quot;');
   },
 
-  /** 从 URL hash 加载分享的题目 */
-  _loadSharedQuiz() {
+  /** 从 URL hash 加载分享的题目（支持短链接 #s= 和旧版 #q=） */
+  async _loadSharedQuiz() {
     const hash = window.location.hash;
-    let encoded;
-    if (hash.startsWith('#q=')) {
-      encoded = hash.slice(3);
-    }
+    if (!hash) return;
 
-    if (!encoded) return;
+    // 新版短链接: #s=ABC123
+    if (hash.startsWith('#s=')) {
+      const id = hash.slice(3);
+      if (!id) return;
+      try {
+        this.showLoading('正在加载分享内容...');
+        const resp = await fetch('/api/share?id=' + encodeURIComponent(id));
+        const data = await resp.json();
+        this.hideLoading();
 
-    try {
-      // URL-safe base64 → 标准 base64 → UTF-8 JSON
-      const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
-      const json = decodeURIComponent(escape(atob(base64)));
-      const questions = JSON.parse(json);
+        if (!data.ok || !Array.isArray(data.questions) || data.questions.length === 0) {
+          this.toast(data.error || '分享内容已过期或不存在');
+          return;
+        }
 
-      if (Array.isArray(questions) && questions.length > 0) {
-        Store.questions = questions;
-        App._shareData = encoded;
+        Store.questions = data.questions;
 
         // 直接跳转到确认页
-        App._history = ['index', 'confirm'];
-        App._showPage('index', false);
-        App._showPage('confirm', true);
-        App.pages.confirm.render();
-        App._updateNavBar();
+        this._history = ['index', 'confirm'];
+        this._showPage('index', false);
+        this._showPage('confirm', true);
+        this.pages.confirm.render();
+        this._updateNavBar();
         window.scrollTo(0, 0);
 
         // 清除 hash 避免刷新重复加载
         if (window.history && window.history.replaceState) {
           window.history.replaceState(null, '', window.location.pathname);
         }
+      } catch (e) {
+        this.hideLoading();
+        this.toast('加载分享内容失败');
       }
-    } catch (e) {
-      console.warn('加载分享题目失败:', e);
+      return;
+    }
+
+    // 旧版 base64 链接: #q=base64
+    if (hash.startsWith('#q=')) {
+      const encoded = hash.slice(3);
+      try {
+        const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+        const json = decodeURIComponent(escape(atob(base64)));
+        const questions = JSON.parse(json);
+
+        if (Array.isArray(questions) && questions.length > 0) {
+          Store.questions = questions;
+          App._shareData = encoded;
+
+          this._history = ['index', 'confirm'];
+          this._showPage('index', false);
+          this._showPage('confirm', true);
+          this.pages.confirm.render();
+          this._updateNavBar();
+          window.scrollTo(0, 0);
+
+          if (window.history && window.history.replaceState) {
+            window.history.replaceState(null, '', window.location.pathname);
+          }
+        }
+      } catch (e) {
+        console.warn('加载旧版分享题目失败:', e);
+      }
     }
   }
 };
 
 /* ---- 初始化 ---- */
-document.addEventListener('DOMContentLoaded', () => {
-  // 检查是否为分享链接
-  if (window.location.hash && window.location.hash.startsWith('#q=')) {
-    App._loadSharedQuiz();
+document.addEventListener('DOMContentLoaded', async () => {
+  // 检查是否为分享链接（优先新版短链接 #s=，兼容旧版 #q=）
+  if (window.location.hash && (window.location.hash.startsWith('#s=') || window.location.hash.startsWith('#q='))) {
+    await App._loadSharedQuiz();
   } else {
     App.pages.index.init();
   }

@@ -2,6 +2,21 @@
 // 标准 Node.js (req, res) 模式
 const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY;
 
+// 内存分享存储（Vercel Serverless 实例内共享，低流量下实例存活数分钟到数小时，适合临时分享场景）
+const shareStore = new Map();
+const SHARE_TTL = 24 * 60 * 60 * 1000; // 24小时
+
+function generateShortId() {
+  return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
+
+function cleanupShares() {
+  const now = Date.now();
+  for (const [id, entry] of shareStore) {
+    if (entry.expiresAt < now) shareStore.delete(id);
+  }
+}
+
 export default async function handler(req, res) {
   // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -50,6 +65,17 @@ export default async function handler(req, res) {
     const shareMatch = url.pathname.match(/^\/s\/(.+)$/);
     if (shareMatch) {
       return handleShare(shareMatch[1], isCrawler, url, res);
+    }
+
+    // POST /share → save quiz data, return short id
+    // GET  /share?id=xxx → retrieve quiz data by short id
+    if (url.pathname === "/share") {
+      if (req.method === "POST") {
+        return await handleShareSave(req, res);
+      }
+      if (req.method === "GET") {
+        return await handleShareGet(url, res);
+      }
     }
 
     // Default redirect
@@ -113,6 +139,37 @@ async function handleFetch(targetUrl, res) {
     return json(res, { ok: true, text: text.slice(0, 50000), length: text.length });
   } catch (e) {
     return json(res, { ok: false, error: e.message }, 502);
+  }
+}
+
+// ---- Share: save data (POST /share) ----
+async function handleShareSave(req, res) {
+  try {
+    cleanupShares();
+    const body = await readBody(req);
+    const questions = body.questions;
+    if (!Array.isArray(questions) || questions.length === 0) {
+      return json(res, { ok: false, error: "缺少题目数据" }, 400);
+    }
+    const id = generateShortId();
+    shareStore.set(id, { questions, expiresAt: Date.now() + SHARE_TTL });
+    return json(res, { ok: true, id });
+  } catch (e) {
+    return json(res, { ok: false, error: e.message }, 500);
+  }
+}
+
+// ---- Share: get data (GET /share?id=xxx) ----
+async function handleShareGet(url, res) {
+  try {
+    cleanupShares();
+    const id = url.searchParams.get("id");
+    if (!id) return json(res, { ok: false, error: "缺少分享ID" }, 400);
+    const entry = shareStore.get(id);
+    if (!entry) return json(res, { ok: false, error: "分享已过期或不存在" }, 404);
+    return json(res, { ok: true, questions: entry.questions });
+  } catch (e) {
+    return json(res, { ok: false, error: e.message }, 500);
   }
 }
 
