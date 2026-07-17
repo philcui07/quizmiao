@@ -229,11 +229,37 @@ body {
 }
 .qconf-del:hover { background: #FFE0E0; color: var(--danger); }
 
-/* 流式加载指示器 */
-.confirm-streaming-loader {
-  text-align: center; padding: 32px 20px;
+/* 确认页标题行内 spinner */
+.section-title-loading {
+  display: flex; align-items: center; gap: 8px;
 }
-.confirm-streaming-loader .dot-spinner { margin-bottom: 16px; }
+.inline-spinner {
+  display: inline-flex; align-items: center; gap: 4px;
+  width: auto; margin: 0;
+}
+.inline-spinner .dot {
+  width: 6px; height: 6px;
+}
+
+/* 确认页进度条 */
+.confirm-progress {
+  background: var(--line2); height: 4px; border-radius: 2px;
+  margin-top: 10px; overflow: hidden;
+}
+.confirm-progress-bar {
+  height: 100%; background: var(--primary);
+  border-radius: 2px; transition: width 0.3s ease;
+  width: 0%;
+}
+
+/* 确认页卡片入场动画 */
+.qconf-card-enter {
+  animation: cardFadeSlideIn 0.35s ease-out both;
+}
+@keyframes cardFadeSlideIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 
 /* =================================================
    练习页 (practice) 样式

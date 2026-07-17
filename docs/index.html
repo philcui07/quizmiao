@@ -13,7 +13,7 @@
 <meta property="og:locale" content="zh_CN">
 <meta property="og:site_name" content="出题喵喵">
 <meta property="og:image" content="icon.png">
-<link rel="stylesheet" href="css/style.css?v=11">
+<link rel="stylesheet" href="css/style.css?v=12">
 <style>
 /* Toast 组件 */
 #toast { position:fixed; top:calc(54px + env(safe-area-inset-top, 0px)); left:50%; transform:translateX(-50%); background:rgba(0,0,0,.78); color:#fff; font-size:13px; padding:10px 20px; border-radius:8px; z-index:9999; opacity:0; transition:opacity .25s; pointer-events:none; white-space:nowrap; max-width:80vw; overflow:hidden; text-overflow:ellipsis; }
@@ -92,21 +92,17 @@
 <!-- ====== Page: confirm (确认页) ====== -->
 <div id="page-confirm" class="page" style="display:none">
   <div class="card">
-    <div class="section-title">✅ 已生成 <span id="confirm-count">0</span> 道题</div>
+    <div class="section-title" id="confirm-title">✅ 已生成 <span id="confirm-count">0</span> 道题</div>
+    <div class="loading-sub" id="confirm-loading-sub" style="display:none">请耐心等待，不要离开页面</div>
     <div class="tags-row" id="confirm-tags"></div>
+    <!-- 进度条 -->
+    <div class="confirm-progress" id="confirm-progress" style="display:none">
+      <div class="confirm-progress-bar" id="confirm-progress-bar" style="width:0%"></div>
+    </div>
   </div>
 
   <div class="section-hint">题目列表</div>
   <div class="qconf-list" id="confirm-list"></div>
-
-  <!-- 流式加载指示器 -->
-  <div id="confirm-streaming-loader" class="confirm-streaming-loader" style="display:none">
-    <div class="dot-spinner">
-      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
-    </div>
-    <div class="loading-text">AI 正在出题，约 10~30 秒...</div>
-    <div class="loading-sub" id="streaming-sub">已生成 0 题</div>
-  </div>
 
   <!-- 错误提示 -->
   <div id="confirm-error" class="msg msg-error" style="display:none; margin:16px;"></div>
@@ -172,8 +168,8 @@
   </div>
 </div>
 
-<script src="js/store.js?v=11"></script>
-<script src="js/api.js?v=11"></script>
-<script src="js/app.js?v=11"></script>
+<script src="js/store.js?v=12"></script>
+<script src="js/api.js?v=12"></script>
+<script src="js/app.js?v=12"></script>
 </body>
 </html>
