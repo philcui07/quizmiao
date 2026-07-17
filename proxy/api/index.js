@@ -69,7 +69,7 @@ export default async function handler(req, res) {
 
     // POST /share → save quiz data, return short id
     // GET  /share?id=xxx → retrieve quiz data by short id
-    if (url.pathname === "/share") {
+    if (url.pathname === "/share" || url.pathname === "/api/share") {
       if (req.method === "POST") {
         return await handleShareSave(req, res);
       }

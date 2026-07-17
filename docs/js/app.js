@@ -166,13 +166,24 @@ const App = {
 
     try {
       this.showLoading('正在生成分享链接...');
-      const resp = await fetch('/api/share', {
+      const resp = await fetch(`${WORKER_URL}/share`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ questions: qs })
       });
-      const data = await resp.json();
+      const text = await resp.text();
       this.hideLoading();
+
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        // 后端返回了 HTML 错误页面（如 404）
+        console.error('Share API returned non-JSON:', text.slice(0, 200));
+        this.toast('分享服务暂不可用，请刷新后重试');
+        this.closeShareModal();
+        return;
+      }
 
       if (!data.ok || !data.id) {
         this.toast('分享失败，请重试');
@@ -202,13 +213,23 @@ const App = {
 
     try {
       this.showLoading('正在生成二维码...');
-      const resp = await fetch('/api/share', {
+      const resp = await fetch(`${WORKER_URL}/share`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ questions: qs })
       });
-      const data = await resp.json();
+      const text = await resp.text();
       this.hideLoading();
+
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        console.error('Share API returned non-JSON:', text.slice(0, 200));
+        this.toast('分享服务暂不可用，请刷新后重试');
+        this.closeShareModal();
+        return;
+      }
 
       if (!data.ok || !data.id) {
         this.toast('分享失败，请重试');
@@ -816,9 +837,18 @@ const App = {
       if (!id) return;
       try {
         this.showLoading('正在加载分享内容...');
-        const resp = await fetch('/api/share?id=' + encodeURIComponent(id));
-        const data = await resp.json();
+        const resp = await fetch(`${WORKER_URL}/share?id=${encodeURIComponent(id)}`);
+        const text = await resp.text();
         this.hideLoading();
+
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          console.error('Share GET returned non-JSON:', text.slice(0, 200));
+          this.toast('分享内容已过期或不可用');
+          return;
+        }
 
         if (!data.ok || !Array.isArray(data.questions) || data.questions.length === 0) {
           this.toast(data.error || '分享内容已过期或不存在');
