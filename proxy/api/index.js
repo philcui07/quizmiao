@@ -4,7 +4,7 @@ const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY;
 
 // 内存分享存储（Vercel Serverless 实例内共享，低流量下实例存活数分钟到数小时，适合临时分享场景）
 const shareStore = new Map();
-const SHARE_TTL = 24 * 60 * 60 * 1000; // 24小时
+const SHARE_TTL = 60 * 60 * 1000; // 1小时
 
 function generateShortId() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -166,7 +166,7 @@ async function handleShareGet(url, res) {
     const id = url.searchParams.get("id");
     if (!id) return json(res, { ok: false, error: "缺少分享ID" }, 400);
     const entry = shareStore.get(id);
-    if (!entry) return json(res, { ok: false, error: "分享已过期或不存在" }, 404);
+    if (!entry) return json(res, { ok: false, error: "分享已过期（有效时长1小时），请让分享者重新生成" }, 404);
     return json(res, { ok: true, questions: entry.questions });
   } catch (e) {
     return json(res, { ok: false, error: e.message }, 500);
