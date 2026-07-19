@@ -1,5 +1,5 @@
 /**
- * 出题喵喵 QuizMiao — Web 版主应用
+ * 拾知猫 — Web 版主应用
  * 对应小程序 pages 组件 + 导航系统
  *
  * 页面路由: index / confirm / practice / result
@@ -242,7 +242,7 @@ const App = {
 
       // 显示二维码
       document.getElementById('share-qr-img').src = qrUrl;
-      document.getElementById('share-qr-caption').textContent = '出题喵喵 · ' + qs.length + '道题';
+      document.getElementById('share-qr-caption').textContent = '拾知猫 · ' + qs.length + '道题';
       document.getElementById('share-qr-wrap').style.display = '';
 
       // 尝试复制图片到剪贴板
@@ -807,17 +807,6 @@ const App = {
         Store.preparePool();
         App.pages.practice.render();
         App.redirectTo('practice');
-      }
-    },
-
-    /* ---- 关于页 (about) ---- */
-    about: {
-      show() {
-        document.getElementById('about-modal').style.display = '';
-      },
-
-      hide() {
-        document.getElementById('about-modal').style.display = 'none';
       }
     }
   },

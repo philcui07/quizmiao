@@ -1,4 +1,4 @@
-// Vercel Serverless Function — 出题喵喵后端代理
+// Vercel Serverless Function — 拾知猫后端代理
 // 标准 Node.js (req, res) 模式
 const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY;
 
@@ -182,13 +182,13 @@ function handleShare(encodedData, isCrawler, requestUrl, res) {
     return res.status(302).end();
   }
 
-  let previewTitle = "出题喵喵 · AI出题练习";
+  let previewTitle = "拾知猫";
   let previewDesc = "有人分享了一组练习题给你，点击打开做题！";
   try {
     const estimatedBytes = Math.floor((encodedData.length * 3) / 4);
     const estimatedQuestions = Math.floor(estimatedBytes / 60);
     if (estimatedQuestions > 0 && estimatedQuestions <= 99) {
-      previewTitle = `出题喵喵 · ${estimatedQuestions}道练习题`;
+      previewTitle = `拾知猫 · ${estimatedQuestions}道练习题`;
       previewDesc = `包含约 ${estimatedQuestions} 道 AI 生成的练习题，覆盖多个知识点，点击开始做题！`;
     }
   } catch (_) {}
@@ -207,11 +207,11 @@ function handleShare(encodedData, isCrawler, requestUrl, res) {
 <meta property="og:image:width" content="512">
 <meta property="og:image:height" content="512">
 <meta property="og:locale" content="zh_CN">
-<meta property="og:site_name" content="出题喵喵">
+<meta property="og:site_name" content="拾知猫">
 <meta http-equiv="refresh" content="0;url=${mainUrl}">
 </head>
 <body>
-<p>正在跳转到出题喵喵...</p>
+<p>正在跳转到拾知猫...</p>
 <script>location.href='${mainUrl}';</script>
 </body>
 </html>`;

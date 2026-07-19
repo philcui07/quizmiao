@@ -1,5 +1,5 @@
 /**
- * 出题喵喵 QuizMiao — API 网络请求模块
+ * 拾知猫 — API 网络请求模块
  * 对应小程序 wx.request 封装
  *
  * 部署后请将 WORKER_URL 改为你的 Vercel 代理地址

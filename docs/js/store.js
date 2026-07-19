@@ -1,5 +1,5 @@
 /**
- * 出题喵喵 QuizMiao — 全局状态管理
+ * 拾知猫 — 全局状态管理
  * 对应小程序 app.globalData
  */
 const Store = {
