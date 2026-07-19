@@ -196,8 +196,14 @@ body {
 /* 底部 */
 .footer-text {
   font-size: 12px; color: var(--text3); text-align: center;
-  padding: 24px 0;
+  padding: 24px 0 4px;
 }
+.footer-about {
+  font-size: 11px; color: var(--text3); text-align: center;
+  padding: 0 0 24px; cursor: pointer; user-select: none;
+  opacity: 0.5; transition: opacity .2s;
+}
+.footer-about:hover { opacity: 1; color: var(--primary); }
 
 /* =================================================
    确认页 (confirm) 样式
@@ -373,6 +379,133 @@ body {
 }
 .modal-close:hover { background: var(--line); }
 .modal-close:active { background: #ddd; }
+
+/* =================================================
+   关于页弹窗
+   ================================================= */
+.about-modal-content {
+  padding: 0 0 20px;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.about-hero-web {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 28px 20px 16px;
+}
+
+.about-icon-wrap-web {
+  width: 80px;
+  height: 80px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #07C160 0%, #06AD56 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 20px rgba(7, 193, 96, 0.3);
+  margin-bottom: 14px;
+}
+
+.about-icon-inner-web {
+  width: 66px;
+  height: 66px;
+  border-radius: 14px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+}
+
+.about-name-web {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.about-name-en-web {
+  font-size: 13px;
+  color: var(--text3);
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+
+.about-version-web {
+  font-size: 11px;
+  color: var(--primary);
+  background: #E8F8EE;
+  padding: 3px 12px;
+  border-radius: 14px;
+  font-weight: 600;
+}
+
+.about-desc-web {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  text-align: center;
+  padding: 0 20px;
+  margin-bottom: 4px;
+}
+
+.about-desc-sub-web {
+  font-size: 12px;
+  color: var(--text3);
+  text-align: center;
+  padding: 0 20px;
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+
+.about-info-web {
+  border-top: 1px solid var(--line2);
+  padding: 0 20px;
+  margin-top: 8px;
+}
+
+.about-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line2);
+}
+
+.about-info-row-last {
+  border-bottom: none;
+}
+
+.about-info-label {
+  font-size: 13px;
+  color: var(--text3);
+}
+
+.about-info-value {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.about-footer-web {
+  text-align: center;
+  padding: 16px 20px 8px;
+  font-size: 12px;
+  color: var(--text3);
+  line-height: 1.8;
+}
+
+.about-footer-web-sm {
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+.about-modal-content .modal-close {
+  margin: 0 20px 4px;
+  width: auto;
+}
 @media (min-width: 640px) {
   .card { max-width: 500px; margin: 16px auto; }
   .top-actions, .qconf-list, .bottom-bar-inner { max-width: 500px; margin: 0 auto; }

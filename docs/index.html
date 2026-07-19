@@ -13,7 +13,7 @@
 <meta property="og:locale" content="zh_CN">
 <meta property="og:site_name" content="出题喵喵">
 <meta property="og:image" content="icon.png">
-<link rel="stylesheet" href="css/style.css?v=13">
+<link rel="stylesheet" href="css/style.css?v=14">
 <style>
 /* Toast 组件 */
 #toast { position:fixed; top:calc(54px + env(safe-area-inset-top, 0px)); left:50%; transform:translateX(-50%); background:rgba(0,0,0,.78); color:#fff; font-size:13px; padding:10px 20px; border-radius:8px; z-index:9999; opacity:0; transition:opacity .25s; pointer-events:none; white-space:nowrap; max-width:80vw; overflow:hidden; text-overflow:ellipsis; }
@@ -87,6 +87,7 @@
   </div>
 
   <div class="footer-text">出题喵喵 QuizMiao · AI 驱动 · 无需配置</div>
+  <div class="footer-about" onclick="App.pages.about.show()">关于出题喵喵 · v1.0.1</div>
 </div>
 
 <!-- ====== Page: confirm (确认页) ====== -->
@@ -129,7 +130,6 @@
       <div class="progress-fill" id="prac-bar" style="width:0%"></div>
     </div>
 
-    <span class="q-tag" id="prac-cat"></span>
     <div class="q-text" id="prac-question"></div>
 
     <div class="option-list" id="prac-options"></div>
@@ -193,8 +193,52 @@
   </div>
 </div>
 
-<script src="js/store.js?v=13"></script>
-<script src="js/api.js?v=13"></script>
-<script src="js/app.js?v=13"></script>
+<!-- 关于页弹窗 -->
+<div id="about-modal" class="modal" style="display:none">
+  <div class="modal-mask" onclick="App.pages.about.hide()"></div>
+  <div class="modal-content about-modal-content">
+    <div class="about-hero-web">
+      <div class="about-icon-wrap-web">
+        <div class="about-icon-inner-web">🐱</div>
+      </div>
+      <div class="about-name-web">出题喵喵</div>
+      <div class="about-name-en-web">QuizMiao</div>
+      <div class="about-version-web">v1.0.1</div>
+    </div>
+
+    <div class="about-desc-web">AI 驱动的智能出题助手</div>
+    <div class="about-desc-sub-web">粘贴知识点或链接，AI 自动生成练习题，随时随地巩固知识</div>
+
+    <div class="about-info-web">
+      <div class="about-info-row">
+        <span class="about-info-label">当前版本</span>
+        <span class="about-info-value">v1.0.1</span>
+      </div>
+      <div class="about-info-row">
+        <span class="about-info-label">技术栈</span>
+        <span class="about-info-value">HTML · CSS · JavaScript</span>
+      </div>
+      <div class="about-info-row">
+        <span class="about-info-label">AI 模型</span>
+        <span class="about-info-value">DeepSeek / Kimi</span>
+      </div>
+      <div class="about-info-row about-info-row-last">
+        <span class="about-info-label">单次题数</span>
+        <span class="about-info-value">最多 50 题</span>
+      </div>
+    </div>
+
+    <div class="about-footer-web">
+      <div>Made with ❤️ by QuizMiao Team</div>
+      <div class="about-footer-web-sm">出题喵喵 QuizMiao</div>
+    </div>
+
+    <button class="modal-close" onclick="App.pages.about.hide()">关闭</button>
+  </div>
+</div>
+
+<script src="js/store.js?v=14"></script>
+<script src="js/api.js?v=14"></script>
+<script src="js/app.js?v=14"></script>
 </body>
 </html>

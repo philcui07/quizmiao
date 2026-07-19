@@ -700,7 +700,6 @@ const App = {
         document.getElementById('prac-progress').textContent = `第 ${g.idx + 1}/${g.pool.length} 题`;
         document.getElementById('prac-score').textContent = `得分 ${g.score}`;
         document.getElementById('prac-bar').style.width = (g.idx / g.pool.length * 100) + '%';
-        document.getElementById('prac-cat').textContent = q.cat;
         document.getElementById('prac-question').textContent = q.q;
 
         // 选项
@@ -808,6 +807,17 @@ const App = {
         Store.preparePool();
         App.pages.practice.render();
         App.redirectTo('practice');
+      }
+    },
+
+    /* ---- 关于页 (about) ---- */
+    about: {
+      show() {
+        document.getElementById('about-modal').style.display = '';
+      },
+
+      hide() {
+        document.getElementById('about-modal').style.display = 'none';
       }
     }
   },
