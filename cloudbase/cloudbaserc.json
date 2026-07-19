@@ -1,0 +1,60 @@
+{
+  "envId": "quizmiao",
+  "version": "1.1.0",
+  "functions": [
+    {
+      "name": "quiz-generate",
+      "timeout": 60,
+      "env": {
+        "DEEPSEEK_API_KEY": "",
+        "DEEPSEEK_MODEL": "deepseek-v4-flash"
+      }
+    },
+    {
+      "name": "page-fetch",
+      "timeout": 15
+    },
+    {
+      "name": "share-manage",
+      "timeout": 10
+    },
+    {
+      "name": "history-manage",
+      "timeout": 10
+    },
+    {
+      "name": "share-result",
+      "timeout": 10
+    }
+  ],
+  "collections": [
+    {
+      "name": "users",
+      "permissions": {
+        "read": "doc._openid == auth.openid",
+        "write": "doc._openid == auth.openid"
+      }
+    },
+    {
+      "name": "quiz_history",
+      "permissions": {
+        "read": "doc._openid == auth.openid",
+        "write": "doc._openid == auth.openid"
+      }
+    },
+    {
+      "name": "shares",
+      "permissions": {
+        "read": true,
+        "write": "doc._openid == auth.openid"
+      }
+    },
+    {
+      "name": "share_results",
+      "permissions": {
+        "read": "doc.sharer_openid == auth.openid || doc._openid == auth.openid",
+        "write": true
+      }
+    }
+  ]
+}

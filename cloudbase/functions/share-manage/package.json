@@ -1,0 +1,10 @@
+{
+  "name": "share-manage",
+  "version": "1.0.0",
+  "description": "拾知猫 分享管理云函数",
+  "main": "index.js",
+  "dependencies": {
+    "@cloudbase/node-sdk": "^2.5.0"
+  },
+  "timeout": 10
+}

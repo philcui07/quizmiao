@@ -13,25 +13,60 @@
 <meta property="og:locale" content="zh_CN">
 <meta property="og:site_name" content="拾知猫">
 <meta property="og:image" content="icon.png">
-<link rel="stylesheet" href="css/style.css?v=15">
+<link rel="stylesheet" href="css/style.css?v=20">
 <style>
-/* Toast 组件 */
+/* Toast */
 #toast { position:fixed; top:calc(54px + env(safe-area-inset-top, 0px)); left:50%; transform:translateX(-50%); background:rgba(0,0,0,.78); color:#fff; font-size:13px; padding:10px 20px; border-radius:8px; z-index:9999; opacity:0; transition:opacity .25s; pointer-events:none; white-space:nowrap; max-width:80vw; overflow:hidden; text-overflow:ellipsis; }
 #toast.show { opacity:1; }
 /* Loading */
 #loading-overlay { position:fixed; inset:0; background:rgba(255,255,255,.9); z-index:9998; display:none; flex-direction:column; align-items:center; justify-content:center; }
 #loading-overlay.show { display:flex; }
+/* v1.1.0: 导航栏用户区域 */
+.nav-user { display:flex; align-items:center; gap:8px; position:absolute; right:12px; top:0; height:100%; }
+.nav-user-info { color:rgba(255,255,255,.85); font-size:13px; cursor:pointer; }
+.nav-login-btn { color:rgba(255,255,255,.85); font-size:13px; cursor:pointer; padding:4px 12px; border:1px solid rgba(255,255,255,.3); border-radius:6px; }
+/* v1.1.0: 历史入口卡片 */
+.history-entry-card { margin:0 16px 12px; padding:14px 16px; background:var(--card,#fff); border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.06); cursor:pointer; display:flex; align-items:center; gap:12px; }
+.history-entry-icon { font-size:24px; }
+.history-entry-text { flex:1; }
+.history-entry-title { font-size:15px; font-weight:600; color:var(--text1,#333); }
+.history-entry-desc { font-size:12px; color:var(--text3,#999); margin-top:2px; }
+/* v1.1.0: 历史列表 */
+.history-card { background:var(--card,#fff); border-radius:12px; padding:14px 16px; margin:0 16px 10px; box-shadow:0 1px 3px rgba(0,0,0,.06); cursor:pointer; transition:transform .15s; }
+.history-card:active { transform:scale(.98); }
+.history-card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+.history-title { font-size:14px; font-weight:600; color:var(--text1,#333); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.history-stats { display:flex; gap:12px; font-size:12px; color:var(--text3,#999); }
+.history-score { font-weight:600; color:var(--text1,#333); }
+.history-pct { color:var(--accent,#4f46e5); }
+.history-wrong { color:#ef4444; }
+.history-perfect { color:#10b981; }
+.history-date { font-size:11px; color:var(--text3,#999); margin-top:4px; }
+.tag-shared { background:#fef3c7; color:#92400e; }
+.tag-self { background:#dbeafe; color:#1e40af; }
+/* v1.1.0: 登录弹窗 */
+.login-field { display:flex; gap:8px; margin-bottom:12px; }
+.login-field input { flex:1; }
+.login-code-btn { white-space:nowrap; padding:10px 14px; font-size:13px; border:1px solid var(--accent,#4f46e5); color:var(--accent,#4f46e5); background:transparent; border-radius:8px; cursor:pointer; }
+.login-code-btn:disabled { opacity:.5; }
+/* v1.1.0: 分享命名弹窗 */
+.share-name-input { width:100%; padding:12px; border:1px solid var(--border,#e5e7eb); border-radius:8px; font-size:15px; box-sizing:border-box; }
 </style>
 </head>
 <body>
 
-<!-- 导航栏（标准移动端标题栏，44px） -->
+<!-- 导航栏 -->
 <div class="nav-bar">
   <div class="nav-bar-inner">
     <div class="nav-back" id="nav-back" onclick="App.navigateBack(1)" style="display:none">
       <svg width="12" height="20" viewBox="0 0 12 20" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="10 2 2 10 10 18"/></svg>
     </div>
     <div class="nav-title">拾知猫</div>
+    <!-- v1.1.0: 用户区域 -->
+    <div class="nav-user">
+      <span class="nav-user-info" id="user-info" style="display:none" onclick="App.openNicknameModal()"></span>
+      <span class="nav-login-btn" id="login-btn" onclick="App.openLoginModal()">登录</span>
+    </div>
   </div>
 </div>
 
@@ -86,7 +121,17 @@
     <div id="index-error" class="msg msg-error" style="display:none"></div>
   </div>
 
-  <div class="footer-text">拾知猫 · v1.0.1</div>
+  <!-- v1.1.0: 历史记录入口 -->
+  <div class="history-entry-card" id="history-entry" style="display:none" onclick="App.navigateTo('history')">
+    <div class="history-entry-icon">📊</div>
+    <div class="history-entry-text">
+      <div class="history-entry-title">历史记录</div>
+      <div class="history-entry-desc">查看练习次数、成绩和错题集</div>
+    </div>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+  </div>
+
+  <div class="footer-text">拾知猫 · v1.1.0</div>
 </div>
 
 <!-- ====== Page: confirm (确认页) ====== -->
@@ -95,7 +140,6 @@
     <div class="section-title" id="confirm-title">✅ 已生成 <span id="confirm-count">0</span> 道题</div>
     <div class="loading-sub" id="confirm-loading-sub" style="display:none">请耐心等待，不要离开页面</div>
     <div class="tags-row" id="confirm-tags"></div>
-    <!-- 进度条 -->
     <div class="confirm-progress" id="confirm-progress" style="display:none">
       <div class="confirm-progress-bar" id="confirm-progress-bar" style="width:0%"></div>
     </div>
@@ -104,7 +148,6 @@
   <div class="section-hint">题目列表</div>
   <div class="qconf-list" id="confirm-list"></div>
 
-  <!-- 错误提示 -->
   <div id="confirm-error" class="msg msg-error" style="display:none; margin:16px;"></div>
 
   <div class="bottom-bar">
@@ -130,7 +173,6 @@
     </div>
 
     <div class="q-text" id="prac-question"></div>
-
     <div class="option-list" id="prac-options"></div>
 
     <div class="feedback" id="prac-feedback" style="display:none">
@@ -167,6 +209,38 @@
   </div>
 </div>
 
+<!-- ====== v1.1.0: Page: history (历史列表页) ====== -->
+<div id="page-history" class="page" style="display:none">
+  <div class="card">
+    <div class="section-title">📊 历史记录</div>
+    <div class="section-desc">查看练习次数、成绩和错题集</div>
+  </div>
+  <div id="history-list"></div>
+  <div style="text-align:center; padding:12px;">
+    <button class="btn btn-outline btn-sm" id="history-load-more" style="display:none" onclick="App.pages.history.loadMore()">加载更多</button>
+  </div>
+</div>
+
+<!-- ====== v1.1.0: Page: history-detail (历史详情页) ====== -->
+<div id="page-history-detail" class="page" style="display:none">
+  <div class="card">
+    <div class="section-title" id="history-detail-title">练习详情</div>
+    <div class="history-date" id="history-detail-date"></div>
+    <div class="practice-header" style="margin-top:12px">
+      <span class="progress-info" id="history-detail-score">0/0</span>
+      <span class="progress-info" id="history-detail-pct">正确率 0%</span>
+    </div>
+  </div>
+
+  <div class="card wrong-section" id="history-detail-wrong" style="display:none">
+    <div class="section-title">错题回顾（<span id="history-detail-wrong-count">0</span> 道）</div>
+    <div id="history-detail-wrong-list"></div>
+  </div>
+
+  <div class="section-hint">题目列表</div>
+  <div class="qconf-list" id="history-detail-questions"></div>
+</div>
+
 <!-- 分享弹窗 -->
 <div id="share-modal" class="modal" style="display:none">
   <div class="modal-mask" onclick="App.closeShareModal()"></div>
@@ -174,11 +248,11 @@
     <div class="modal-title">分享给好友</div>
     <div class="modal-desc">选择分享方式，内容将自动复制到剪贴板</div>
     <div class="modal-options">
-      <button class="modal-option" onclick="App._doShareLink()">
+      <button class="modal-option" onclick="App._doShareLink('')">
         <div class="modal-opt-icon">🔗</div>
         <div class="modal-opt-label">分享链接</div>
       </button>
-      <button class="modal-option" onclick="App._doShareQR()">
+      <button class="modal-option" onclick="App._doShareQR('')">
         <div class="modal-opt-icon">📷</div>
         <div class="modal-opt-label">分享二维码</div>
       </button>
@@ -192,8 +266,72 @@
   </div>
 </div>
 
-<script src="js/store.js?v=15"></script>
-<script src="js/api.js?v=15"></script>
-<script src="js/app.js?v=15"></script>
+<!-- v1.1.0: 分享命名弹窗 -->
+<div id="share-name-modal" class="modal" style="display:none">
+  <div class="modal-mask" onclick="App.closeShareNameModal()"></div>
+  <div class="modal-content">
+    <div class="modal-title">给这份练习起个名字</div>
+    <div class="modal-desc">方便好友识别内容，也方便你管理分享</div>
+    <input type="text" class="share-name-input" id="share-name-input" placeholder="例如：第三章英语词汇练习" maxlength="50" />
+    <div style="display:flex; gap:8px; margin-top:16px;">
+      <button class="btn btn-outline btn-flex" onclick="App.confirmShareName('link')">分享链接</button>
+      <button class="btn btn-primary btn-flex" onclick="App.confirmShareName('qr')">分享二维码</button>
+    </div>
+    <button class="modal-close" onclick="App.closeShareNameModal()">取消</button>
+  </div>
+</div>
+
+<!-- v1.1.0: 被分享人昵称弹窗 -->
+<div id="share-nickname-modal" class="modal" style="display:none">
+  <div class="modal-mask"></div>
+  <div class="modal-content">
+    <div class="modal-title">输入你的昵称（可选）</div>
+    <div class="modal-desc">让分享人知道是谁做的题，填过一次后下次自动带入</div>
+    <input type="text" class="share-name-input" id="share-nickname-input" placeholder="你的昵称" maxlength="20" />
+    <div style="display:flex; gap:8px; margin-top:16px;">
+      <button class="btn btn-outline btn-flex" onclick="App.skipShareNickname()">跳过</button>
+      <button class="btn btn-primary btn-flex" onclick="App.submitShareNickname()">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- v1.1.0: 登录弹窗 -->
+<div id="login-modal" class="modal" style="display:none">
+  <div class="modal-mask" onclick="App.closeLoginModal()"></div>
+  <div class="modal-content">
+    <div class="modal-title">登录拾知猫</div>
+    <div class="modal-desc">手机号 + 验证码登录，记录你的练习历史</div>
+    <div class="login-field">
+      <input type="tel" class="input-area" id="login-phone" placeholder="手机号" maxlength="11" style="flex:1" />
+    </div>
+    <div class="login-field">
+      <input type="text" class="input-area" id="login-code" placeholder="验证码" maxlength="6" style="flex:1" />
+      <button class="login-code-btn" id="login-code-btn" onclick="App.sendLoginCode()">获取验证码</button>
+    </div>
+    <button class="btn btn-primary btn-flex" onclick="App.doLogin()" style="margin-top:8px">登录</button>
+    <button class="modal-close" onclick="App.closeLoginModal()">取消</button>
+  </div>
+</div>
+
+<!-- v1.1.0: 昵称设置弹窗 -->
+<div id="nickname-modal" class="modal" style="display:none">
+  <div class="modal-mask" onclick="App.closeNicknameModal()"></div>
+  <div class="modal-content">
+    <div class="modal-title">设置昵称</div>
+    <div class="modal-desc">在历史记录和分享中显示</div>
+    <input type="text" class="share-name-input" id="nickname-input" placeholder="你的昵称" maxlength="20" />
+    <button class="btn btn-primary btn-flex" onclick="App.saveNickname()" style="margin-top:16px">保存</button>
+    <button class="modal-close" onclick="App.closeNicknameModal()">取消</button>
+  </div>
+</div>
+
+<!-- v1.1.0: CloudBase SDK -->
+<script src="https://web-9gikj6ufa6efe07a-1259785600.tcloudbaseapp.com/cloudbase-js-sdk/1.7.2/cloudbase.full.js"></script>
+
+<!-- App Scripts -->
+<script src="js/store.js?v=20"></script>
+<script src="js/cloudbase.js?v=20"></script>
+<script src="js/api.js?v=20"></script>
+<script src="js/app.js?v=20"></script>
 </body>
 </html>

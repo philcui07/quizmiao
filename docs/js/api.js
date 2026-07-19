@@ -1,17 +1,17 @@
 /**
- * 拾知猫 — API 网络请求模块
- * 对应小程序 wx.request 封装
+ * 拾知猫 v1.1.0 — API 网络请求模块
+ * 基于 CloudBase 云函数，替代 v1.0.1 的 Vercel 代理
  *
- * 部署后请将 WORKER_URL 改为你的 Vercel 代理地址
- * 例如: https://你的项目名.vercel.app
+ * 变更说明：
+ * - 出题改为非流式（CloudBase 云函数不支持 SSE）
+ * - 网页抓取改为云函数调用
+ * - 分享相关操作移至 CB 模块
  */
 
-const WORKER_URL = 'https://vercelapi.philcui.top';
-const FETCH_TIMEOUT = 15000;   // 网页抓取：15 秒
-const LLM_TIMEOUT = 60000;     // AI 出题：60 秒（优化后无需验证步骤）
+const LLM_TIMEOUT = 60000;
 
 /**
- * HTTP 请求封装（对应小程序 wxRequest）
+ * HTTP 请求封装（保留用于第三方 API 如二维码生成）
  */
 async function httpRequest(url, method = 'GET', data = null, timeout = 15000) {
   const controller = new AbortController();
@@ -43,114 +43,70 @@ async function httpRequest(url, method = 'GET', data = null, timeout = 15000) {
 }
 
 /**
- * 网页内容抓取
+ * 网页内容抓取（CloudBase 云函数）
  */
 async function fetchPageContent(targetUrl) {
-  const resp = await httpRequest(
-    `${WORKER_URL}/api?url=${encodeURIComponent(targetUrl)}`,
-    'GET', null, FETCH_TIMEOUT
-  );
-  return resp;
+  return await CB.fetchPage(targetUrl);
 }
 
 /**
- * AI 出题（非流式，用于小程序云函数代理）
+ * AI 出题（CloudBase 云函数，非流式）
  */
 async function generateQuestions(content, count) {
-  const resp = await httpRequest(
-    `${WORKER_URL}/llm`, 'POST',
-    { content, count },
-    LLM_TIMEOUT
-  );
-  return resp;
+  return await CB.generateQuestions(content, count);
 }
 
 /**
- * AI 出题（SSE 流式传输）
- * @param {string} content - 出题内容
- * @param {number} count - 题目数量
- * @param {object} callbacks - { onStart, onQuestion, onDone, onError }
- * @returns {AbortController} 用于取消请求
+ * AI 出题（模拟流式接口，兼容 v1.0.1 前端调用）
+ * 实际为非流式调用，通过分批渲染模拟流式效果
+ * @returns {AbortController} 用于取消（模拟）
  */
 function streamGenerateQuestions(content, count, { onStart, onQuestion, onDone, onError }) {
+  let cancelled = false;
   const controller = new AbortController();
 
   (async () => {
     try {
-      const resp = await fetch(`${WORKER_URL}/llm-stream`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, count }),
-        signal: controller.signal,
-        redirect: 'error', // Don't follow redirects (detect if endpoint doesn't exist)
-      });
+      if (onStart) onStart(count);
 
-      // If response is not SSE, fall back to non-streaming
-      const ct = resp.headers.get('Content-Type') || '';
-      if (!ct.includes('text/event-stream')) {
-        throw new Error('SSE_NOT_AVAILABLE');
+      const resp = await CB.generateQuestions(content, count);
+
+      if (cancelled) return;
+
+      if (!resp || !resp.ok || !resp.questions || resp.questions.length === 0) {
+        throw new Error(resp?.error || 'AI 未生成有效题目');
       }
 
-      if (!resp.ok) {
-        throw new Error('HTTP ' + resp.status);
+      // 模拟流式：逐题发送，间隔 200ms
+      const questions = resp.questions;
+      for (let i = 0; i < questions.length; i++) {
+        if (cancelled) return;
+        await new Promise(r => setTimeout(r, 150));
+        if (onQuestion) onQuestion(questions[i], i + 1);
       }
 
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      const questions = [];
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop(); // keep incomplete line
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith('data: ')) continue;
-          const data = trimmed.slice(6);
-          if (data === '[DONE]') continue;
-
-          try {
-            const event = JSON.parse(data);
-            if (event.type === 'start' && onStart) {
-              onStart(event.count);
-            } else if (event.type === 'question' && onQuestion) {
-              questions.push(event.question);
-              onQuestion(event.question, questions.length);
-            } else if (event.type === 'done') {
-              if (onDone) onDone(questions);
-            } else if (event.type === 'error') {
-              if (onError) onError(event.error);
-              return;
-            }
-          } catch (_) {}
-        }
-      }
-
-      // Stream ended without explicit done event
-      if (onDone && questions.length > 0) onDone(questions);
-      else if (onDone && questions.length === 0) onError && onError('未生成任何题目');
+      if (cancelled) return;
+      if (onDone) onDone(questions);
     } catch (e) {
-      if (e.name === 'AbortError') return;
+      if (cancelled) return;
       if (onError) onError(e.message || '网络错误');
     }
   })();
 
-  return controller;
+  // 返回一个模拟的 controller
+  return {
+    abort() {
+      cancelled = true;
+    }
+  };
 }
 
 /**
- * 题目验证
+ * 题目验证（CloudBase 云函数）
  */
 async function verifyQuestions(questions) {
-  const resp = await httpRequest(
-    `${WORKER_URL}/verify`, 'POST',
-    { questions },
-    LLM_TIMEOUT
-  );
-  return resp;
+  return await CB.callFunction('quiz-generate', {
+    action: 'verify',
+    questions,
+  });
 }

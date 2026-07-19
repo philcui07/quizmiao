@@ -1,0 +1,8 @@
+{
+  "name": "quiz-generate",
+  "version": "1.0.0",
+  "description": "拾知猫 AI 出题云函数",
+  "main": "index.js",
+  "dependencies": {},
+  "timeout": 60
+}
