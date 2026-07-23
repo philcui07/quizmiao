@@ -1,0 +1,25 @@
+<view class="card result-wrap">
+  <view class="section-title">练习完成</view>
+  <view class="score-circle">
+    <text class="score-num">{{score}}/{{total}}</text>
+    <text class="score-pct">正确率 {{pct}}%</text>
+  </view>
+  <view class="result-desc">{{pct === 100 ? '太棒了，全对！🎉' : (pct >= 80 ? '表现不错！' : '继续加油！')}}</view>
+
+  <view class="result-btns">
+    <button class="btn btn-primary" bindtap="retry">再做一次</button>
+    <button class="btn btn-outline" bindtap="goConfirm">题目列表</button>
+    <button class="btn btn-outline" bindtap="goHome">返回首页</button>
+  </view>
+</view>
+
+<!-- 错题 -->
+<view class="card wrong-section" wx:if="{{wrong.length}}">
+  <view class="section-title">错题回顾（{{wrong.length}} 道）</view>
+  <view class="wrong-item" wx:for="{{wrong}}" wx:key="index">
+    <view class="wq">{{index + 1}}. [{{item.cat}}] {{item.q}}</view>
+    <view>你的答案：<text class="wa">{{item.picked}}</text></view>
+    <view>正确答案：<text class="wc">{{item.correct}}</text></view>
+    <view class="we">{{item.exp}}</view>
+  </view>
+</view>

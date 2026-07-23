@@ -1,0 +1,86 @@
+/* 出题喵喵 QuizMiao — 全局样式 */
+page {
+  --primary: #07C160;
+  --primary-d: #06AD56;
+  --danger: #FA5151;
+  --bg: #F6F6F6;
+  --card: #FFFFFF;
+  --text: #000000;
+  --text2: #576B95;
+  --text3: #999999;
+  --line: #E5E5E5;
+  --line2: #F0F0F0;
+
+  background: var(--bg);
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* 通用按钮 */
+.btn {
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; font-size: 14px; font-weight: 600;
+  padding: 10px 20px; min-height: 44px;
+  border: none;
+}
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:active { background: var(--primary-d); }
+.btn-outline { background: var(--card); color: var(--primary); border: 1px solid var(--primary); }
+.btn-outline:active { background: #F0FFF4; }
+.btn-sm { padding: 6px 14px; font-size: 12px; min-height: 32px; }
+.btn-block { width: 100%; }
+
+/* 卡片 */
+.card {
+  background: var(--card); border-radius: 12px;
+  padding: 20px 16px; margin: 16px;
+}
+
+/* 标签 */
+.tag {
+  display: inline-block; font-size: 12px;
+  background: #E8F8EE; color: var(--primary-d);
+  padding: 3px 10px; border-radius: 4px;
+  margin: 2px 6px 2px 0; font-weight: 500;
+}
+
+/* 提示信息 */
+.msg { font-size: 12px; padding: 10px 12px; border-radius: 8px; margin-top: 10px; }
+.msg-error { background: #FFF0F0; color: var(--danger); }
+.msg-success { background: #F0FFF4; color: var(--primary-d); }
+.msg-info { background: #F0F7FF; color: var(--text2); }
+
+/* 加载动画 */
+.loading-box { text-align: center; padding: 48px 20px; }
+.dot-spinner { display: flex; gap: 6px; justify-content: center; margin-bottom: 20px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--primary); }
+@keyframes dotBounce {
+  0%,80%,100% { transform: scale(.6); opacity: .4; }
+  40% { transform: scale(1); opacity: 1; }
+}
+.dot:nth-child(1) { animation: dotBounce 1.2s infinite ease-in-out; }
+.dot:nth-child(2) { animation: dotBounce 1.2s .2s infinite ease-in-out; }
+.dot:nth-child(3) { animation: dotBounce 1.2s .4s infinite ease-in-out; }
+
+.loading-text { font-size: 14px; color: var(--text3); }
+.loading-sub { font-size: 12px; color: var(--text3); margin-top: 6px; }
+
+/* 底部栏 */
+.bottom-bar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: var(--card); border-top: 1px solid var(--line);
+  padding: 10px 16px; display: flex; gap: 10px;
+  padding-bottom: max(10px, env(safe-area-inset-bottom));
+  z-index: 100;
+}
+
+/* 分割提示 */
+.section-hint {
+  font-size: 12px; color: var(--text3); text-align: center;
+  padding: 8px 16px; display: flex; align-items: center; gap: 10px;
+}
+.section-hint::before, .section-hint::after {
+  content: ''; flex: 1; height: 1px; background: var(--line);
+}

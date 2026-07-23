@@ -1,0 +1,42 @@
+<view class="card">
+  <!-- 进度 -->
+  <view class="practice-header">
+    <text class="progress-info">第 {{idx + 1}}/{{total}} 题</text>
+    <text class="progress-info">得分 {{score}}</text>
+  </view>
+  <view class="progress-bar">
+    <view class="progress-fill" style="width: {{idx / total * 100}}%"></view>
+  </view>
+
+  <!-- 题目 -->
+  <text class="q-tag">{{currentQ.cat}}</text>
+  <view class="q-text">{{currentQ.q}}</view>
+
+  <!-- 选项 -->
+  <view class="option-list">
+    <view
+      wx:for="{{currentQ.options}}"
+      wx:key="index"
+      wx:for-index="optIndex"
+      class="option-item {{answered ? (optIndex === currentQ.answer ? 'correct' : (optIndex === picked && optIndex !== currentQ.answer ? 'wrong' : '')) : ''}}"
+      bindtap="choose"
+      data-i="{{optIndex}}"
+    >
+      <view class="opt-letter">{{letters[optIndex]}}</view>
+      <text>{{item}}</text>
+    </view>
+  </view>
+
+  <!-- 反馈 -->
+  <view class="feedback" wx:if="{{answered}}">
+    <view class="fb-result {{isCorrect ? 'right' : 'wrong'}}">
+      {{isCorrect ? '✓ 正确！' : '✗ 错误'}}
+    </view>
+    <view class="fb-exp">解析：{{currentQ.exp}}</view>
+  </view>
+
+  <!-- 下一题 -->
+  <view class="next-row">
+    <button class="btn btn-primary" bindtap="nextQ" disabled="{{!answered}}">下一题 →</button>
+  </view>
+</view>

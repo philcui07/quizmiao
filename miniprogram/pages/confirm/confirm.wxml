@@ -1,0 +1,59 @@
+<!-- 顶部统计卡片 -->
+<view class="card">
+  <!-- 加载中：spinner + 进度文字在标题位置 -->
+  <view class="section-title section-title-loading" wx:if="{{loading}}">
+    <view class="dot-spinner inline-spinner">
+      <view class="dot"></view><view class="dot"></view><view class="dot"></view>
+    </view>
+    <text>AI 正在出题，约 10~30 秒...</text>
+  </view>
+  <view class="loading-sub" wx:if="{{loading}}">请耐心等待，不要离开页面</view>
+
+  <!-- 出错 -->
+  <view class="section-title" wx:elif="{{error}}">⚠️ 出题失败</view>
+
+  <!-- 渲染中进度 -->
+  <view class="section-title" wx:elif="{{renderCount > 0 && renderCount < totalCount}}">✨ 已生成 {{totalCount}} 题（{{renderCount}}/{{totalCount}}）</view>
+
+  <!-- 完成 -->
+  <view class="section-title" wx:else>✅ 已生成 {{questions.length}} 道题</view>
+
+  <view class="tags-row" wx:if="{{!loading && !error && tags.length > 0}}">
+    <text class="tag" wx:for="{{tags}}" wx:key="name">{{item.name}} ×{{item.count}}</text>
+  </view>
+  <!-- 进度条 -->
+  <view class="confirm-progress" wx:if="{{(loading || renderCount < totalCount) && !error}}">
+    <view class="confirm-progress-bar" style="width: {{loading ? 5 : (renderCount / totalCount * 100)}}%"></view>
+  </view>
+</view>
+
+<!-- 错误详情 -->
+<view class="confirm-error" wx:if="{{error}}">
+  <view class="error-text">{{error}}</view>
+  <button class="btn btn-outline" bindtap="goBack" style="margin-top:16px;">返回重试</button>
+</view>
+
+<!-- 题目列表 -->
+<block wx:if="{{!loading && !error}}">
+  <view class="section-hint">题目列表</view>
+  <view class="qconf-list">
+    <view class="qconf-card qconf-card-enter" wx:for="{{questions}}" wx:key="index">
+      <view class="qconf-q">{{index + 1}}. [{{item.cat}}] {{item.q}}</view>
+      <view class="qconf-opts">
+        <text wx:for="{{item.options}}" wx:key="*this" wx:for-index="oi">
+          {{['A','B','C','D'][oi]}}. {{item}}  </text>
+      </view>
+      <view class="qconf-ans">
+        答案：{{['A','B','C','D'][item.answer]}}. {{item.options[item.answer]}}
+      </view>
+      <view class="qconf-del" bindtap="delQ" data-idx="{{index}}">×</view>
+    </view>
+  </view>
+</block>
+
+<!-- 底部操作栏：开始练习（大按钮） + 分享图标 + 刷新图标 -->
+<view class="bottom-bar">
+  <button class="btn btn-primary btn-flex" bindtap="startPractice" disabled="{{loading || questions.length === 0}}">开始练习</button>
+  <button class="btn btn-icon icon-share" open-type="share" disabled="{{loading}}"></button>
+  <button class="btn btn-icon icon-refresh" bindtap="regenerate" disabled="{{loading}}"></button>
+</view>
