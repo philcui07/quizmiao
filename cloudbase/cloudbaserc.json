@@ -29,6 +29,17 @@
     {
       "name": "profile-manage",
       "timeout": 10
+    },
+    {
+      "name": "phone-auth",
+      "timeout": 10,
+      "env": {
+        "PHONE_AUTH_PROVIDER": "disabled",
+        "PHONE_AUTH_VERIFY_URL": "",
+        "PHONE_AUTH_APP_ID": "",
+        "PHONE_AUTH_VERIFY_SECRET": "",
+        "PHONE_HASH_SECRET": ""
+      }
     }
   ],
   "collections": [
@@ -66,15 +77,24 @@
         "read": false,
         "write": false
       }
+    },
+    {
+      "name": "phone_bindings",
+      "permissions": {
+        "read": false,
+        "write": false
+      }
     }
   ],
   "indexes": [
     { "collection": "users", "fields": ["owner_id"] },
+    { "collection": "users", "fields": ["canonical_owner_id"] },
     { "collection": "quiz_history", "fields": ["owner_id", "created_at"] },
     { "collection": "quiz_attempts", "fields": ["owner_id", "history_id", "created_at"] },
     { "collection": "quiz_attempts", "fields": ["owner_id", "attempt_id"] },
     { "collection": "shares", "fields": ["owner_id", "created_at"] },
     { "collection": "share_results", "fields": ["share_id", "sharer_id", "created_at"] },
-    { "collection": "share_results", "fields": ["share_id", "attempt_id"] }
+    { "collection": "share_results", "fields": ["share_id", "attempt_id"] },
+    { "collection": "phone_bindings", "fields": ["canonical_owner_id"] }
   ]
 }

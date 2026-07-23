@@ -25,6 +25,7 @@ function loadApp(overrides = {}) {
           textContent: '',
           innerHTML: '',
           disabled: false,
+          focus() {},
         });
       }
       return elements.get(id);
@@ -45,6 +46,9 @@ function loadApp(overrides = {}) {
       history: { replaceState() {} },
       location: { hash: '', origin: 'https://example.com', pathname: '/' },
       scrollTo() {},
+    },
+    PhoneAuth: {
+      getStatus() { return { available: false, reason: '当前未配置运营商一键认证' }; },
     },
     ...overrides,
   });
@@ -167,4 +171,154 @@ test('attempt renderer escapes nickname and exposes score details', () => {
   assert.match(html, /4\/5/);
   assert.match(html, /80%/);
   assert.doesNotMatch(html, /<script>/);
+});
+
+test('logged-out history navigation opens login and keeps a return route', () => {
+  const { App, Store, elements } = loadApp({ CB: {} });
+  Store.user = null;
+
+  const navigated = App.navigateTo('history');
+
+  assert.equal(navigated, false);
+  assert.deepEqual(Array.from(App._history), ['index']);
+  assert.equal(App._pendingRoute, 'history');
+  assert.equal(elements.get('login-modal').style.display, '');
+  assert.equal(elements.get('manual-login-panel').style.display, '');
+  assert.equal(elements.get('one-click-login-btn').disabled, true);
+});
+
+test('manual device login returns to the guarded history page', async () => {
+  const CB = {
+    getNickname() { return ''; },
+    async loginWithManualPhone(phone) {
+      assert.equal(phone, '13800138000');
+      return {
+        ok: true,
+        user: { uid: 'device-1', phone, phoneVerified: false, identityScope: 'device' },
+      };
+    },
+    async listHistory() { return { ok: true, list: [], hasMore: false }; },
+  };
+  const { App, Store, elements } = loadApp({ CB });
+  App.navigateTo('history');
+  elements.get('login-phone').value = '13800138000';
+
+  await App.doManualLogin();
+
+  assert.equal(Store.user.uid, 'device-1');
+  assert.equal(Store.user.phoneVerified, false);
+  assert.equal(App._history[App._history.length - 1], 'history');
+  assert.equal(App._pendingRoute, null);
+  assert.equal(elements.get('login-modal').style.display, 'none');
+});
+
+test('history entry stays visible before login', () => {
+  const { App, Store, elements } = loadApp({ CB: {} });
+  Store.user = null;
+  App._updateLoginUI();
+  assert.equal(elements.get('history-entry').style.display, '');
+});
+
+test('manual phone login creates an anonymous CloudBase identity and stores phone as profile only', async () => {
+  const values = new Map();
+  const calls = [];
+  let loginState = null;
+  const auth = {
+    async getLoginState() { return loginState; },
+    async hasLoginState() { return loginState; },
+    async signInAnonymously() { loginState = { user: { uid: 'secure-device-id' } }; },
+  };
+  const cloudbase = {
+    init() {
+      return {
+        auth() { return auth; },
+        async callFunction({ name, data }) {
+          calls.push({ name, data });
+          if (name === 'profile-manage' && data.action === 'updatePhone') {
+            return { result: { ok: true } };
+          }
+          if (name === 'profile-manage' && data.action === 'get') {
+            return {
+              result: {
+                ok: true,
+                profile: { onboarded: true, phone: '13800138000', phoneVerified: false, nickname: '' },
+              },
+            };
+          }
+          throw new Error('unexpected cloud function');
+        },
+      };
+    },
+  };
+  const context = vm.createContext({
+    cloudbase,
+    console,
+    globalThis: null,
+    localStorage: {
+      getItem(key) { return values.get(key) || null; },
+      setItem(key, value) { values.set(key, value); },
+      removeItem(key) { values.delete(key); },
+    },
+  });
+  context.globalThis = context;
+  const source = fs.readFileSync(path.join(root, 'docs/js/cloudbase.js'), 'utf8');
+  vm.runInContext(source + '\n;globalThis.__CB = CB;', context);
+
+  const result = await context.__CB.loginWithManualPhone('13800138000');
+
+  assert.equal(result.ok, true);
+  assert.equal(result.user.uid, 'secure-device-id');
+  assert.equal(result.user.phoneVerified, false);
+  assert.equal(calls[0].name, 'profile-manage');
+  assert.equal(calls[0].data.action, 'updatePhone');
+  assert.equal(calls[0].data.phone, '13800138000');
+  assert.equal(values.get('quizmiao_account_active'), '1');
+});
+
+test('SMS verification UI and browser calls are removed', () => {
+  const html = fs.readFileSync(path.join(root, 'docs/index.html'), 'utf8');
+  const appSource = fs.readFileSync(path.join(root, 'docs/js/app.js'), 'utf8');
+  const cloudbaseSource = fs.readFileSync(path.join(root, 'docs/js/cloudbase.js'), 'utf8');
+  assert.doesNotMatch(html, /login-code|验证码/);
+  assert.doesNotMatch(appSource, /sendLoginCode|loginWithSMSCode|验证码/);
+  assert.doesNotMatch(cloudbaseSource, /getVerification|signInWithSms|sendSMSCode/);
+});
+
+test('provider adapter returns only provider token data', async () => {
+  const context = vm.createContext({ console, globalThis: null });
+  context.globalThis = context;
+  const configSource = fs.readFileSync(path.join(root, 'docs/js/phone-auth-config.js'), 'utf8');
+  const adapterSource = fs.readFileSync(path.join(root, 'docs/js/phone-auth.js'), 'utf8');
+  vm.runInContext(configSource + '\n' + adapterSource + '\n;globalThis.__PhoneAuth = PhoneAuth;', context);
+  assert.equal(context.__PhoneAuth.getStatus().available, false);
+
+  context.QUIZMIAO_PHONE_AUTH_CONFIG = { enabled: true, provider: 'mock', appId: 'public-app-id' };
+  context.__PhoneAuth.registerAdapter('mock', {
+    async authorize({ appId }) {
+      assert.equal(appId, 'public-app-id');
+      return { token: 'short-lived-token', metadata: { scene: 'login' } };
+    },
+  });
+
+  const result = await context.__PhoneAuth.authorize();
+  assert.equal(result.provider, 'mock');
+  assert.equal(result.token, 'short-lived-token');
+  assert.equal(result.metadata.scene, 'login');
+  assert.equal(Object.hasOwn(result, 'phone'), false);
+});
+
+test('carrier authorization failure reveals manual phone fallback', async () => {
+  const PhoneAuth = {
+    getStatus() { return { available: true, provider: 'mock' }; },
+    async authorize() { throw new Error('当前网络不支持一键认证'); },
+  };
+  const { App, elements } = loadApp({ CB: {}, PhoneAuth });
+  App.openLoginModal();
+  assert.equal(elements.get('manual-login-panel').style.display, 'none');
+
+  await App.startOneClickLogin();
+
+  assert.equal(elements.get('manual-login-panel').style.display, '');
+  assert.equal(elements.get('manual-login-status').textContent, '当前网络不支持一键认证');
+  assert.equal(elements.get('one-click-login-btn').disabled, false);
 });

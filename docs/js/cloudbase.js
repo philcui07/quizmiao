@@ -9,6 +9,7 @@ const CLOUDBASE_ENV_ID = 'quizmiao'; // 部署时替换为真实环境 ID
 let cloudApp = null;
 let cloudAuth = null;
 let currentUser = null;
+const ACCOUNT_ACTIVE_KEY = 'quizmiao_account_active';
 
 const CB = {
   init() {
@@ -24,7 +25,7 @@ const CB = {
   async isLoggedIn() {
     try {
       this.init();
-      return (await cloudAuth.hasLoginState()) !== null;
+      return this._isAccountActive() && (await cloudAuth.hasLoginState()) !== null;
     } catch (e) {
       console.warn('[CloudBase] login state unavailable:', e.message);
       return false;
@@ -35,18 +36,25 @@ const CB = {
     if (currentUser && !refresh) return currentUser;
     try {
       this.init();
+      if (!this._isAccountActive()) return null;
       const state = await cloudAuth.getLoginState();
       if (!state) {
         currentUser = null;
         return null;
       }
+      const profileResult = await this.getProfile();
+      const profile = profileResult?.profile;
+      if (!profileResult?.ok || !profile?.onboarded) {
+        currentUser = null;
+        return null;
+      }
       currentUser = {
         uid: state.user?.uid || state.user?.openid || '',
-        phone: state.user?.phone || state.user?.phone_number || '',
-        nickname: '',
+        phone: profile.phone || '',
+        phoneVerified: Boolean(profile.phoneVerified),
+        nickname: profile.nickname || '',
+        identityScope: profile.phoneVerified ? 'verified-phone' : 'device',
       };
-      const profile = await this.getProfile().catch(() => null);
-      if (profile?.ok) currentUser.nickname = profile.profile?.nickname || '';
       return currentUser;
     } catch (e) {
       currentUser = null;
@@ -54,45 +62,86 @@ const CB = {
     }
   },
 
-  async sendSMSCode(phoneNumber) {
+  async ensureDeviceIdentity() {
     try {
       this.init();
-      const verificationInfo = await cloudAuth.getVerification({
-        phone_number: '+86 ' + phoneNumber,
-      });
-      return { ok: true, verificationInfo };
+      let state = await cloudAuth.getLoginState();
+      if (!state) {
+        if (typeof cloudAuth.signInAnonymously !== 'function') {
+          throw new Error('当前 CloudBase SDK 不支持匿名安全身份');
+        }
+        await cloudAuth.signInAnonymously();
+        state = await cloudAuth.getLoginState();
+      }
+      if (!state) throw new Error('设备身份创建失败');
+      return state;
     } catch (e) {
-      return { ok: false, error: e.message || '验证码发送失败' };
+      throw new Error(e.message || '设备身份创建失败');
     }
   },
 
-  async loginWithSMSCode(phoneNumber, code, verificationInfo) {
-    if (!verificationInfo) {
-      return { ok: false, error: '请先获取验证码' };
-    }
+  async loginWithManualPhone(phoneNumber) {
     try {
-      this.init();
-      await cloudAuth.signInWithSms({
-        verificationInfo,
-        verificationCode: code,
+      await this.ensureDeviceIdentity();
+      const result = await this.callFunction('profile-manage', {
+        action: 'updatePhone',
+        phone: phoneNumber,
       });
+      if (!result?.ok) return result || { ok: false, error: '登录失败' };
+      this._setAccountActive(true);
       currentUser = await this.getCurrentUser({ refresh: true });
-      if (currentUser && !currentUser.phone) currentUser.phone = phoneNumber;
+      if (!currentUser) {
+        this._setAccountActive(false);
+        return { ok: false, error: '账号资料读取失败，请重试' };
+      }
       return { ok: true, user: currentUser };
     } catch (e) {
       return { ok: false, error: e.message || '登录失败' };
     }
   },
 
-  async logout() {
+  async loginWithCarrier(authorization) {
     try {
-      this.init();
-      await cloudAuth.signOut();
-      currentUser = null;
-      return { ok: true };
+      await this.ensureDeviceIdentity();
+      const result = await this.callFunction('phone-auth', {
+        action: 'verify',
+        provider: authorization?.provider,
+        token: authorization?.token,
+        metadata: authorization?.metadata || {},
+      });
+      if (!result?.ok) return result || { ok: false, error: '一键认证失败' };
+      this._setAccountActive(true);
+      currentUser = await this.getCurrentUser({ refresh: true });
+      if (!currentUser) {
+        this._setAccountActive(false);
+        return { ok: false, error: '认证成功但账号资料读取失败，请重试' };
+      }
+      return { ok: true, user: currentUser };
     } catch (e) {
-      return { ok: false, error: e.message || '退出失败' };
+      return { ok: false, error: e.message || '一键认证失败' };
     }
+  },
+
+  async logout() {
+    // 保留 CloudBase 匿名安全身份，确保用户在同一设备重新进入后仍能找回自己的数据。
+    this._setAccountActive(false);
+    currentUser = null;
+    return { ok: true };
+  },
+
+  _isAccountActive() {
+    try {
+      return localStorage.getItem(ACCOUNT_ACTIVE_KEY) === '1';
+    } catch (_) {
+      return false;
+    }
+  },
+
+  _setAccountActive(active) {
+    try {
+      if (active) localStorage.setItem(ACCOUNT_ACTIVE_KEY, '1');
+      else localStorage.removeItem(ACCOUNT_ACTIVE_KEY);
+    } catch (_) {}
   },
 
   getNickname() {
@@ -101,7 +150,7 @@ const CB = {
 
   async setNickname(name) {
     const result = await this.callFunction('profile-manage', {
-      action: 'update',
+      action: 'updateNickname',
       nickname: name,
     });
     if (result.ok && currentUser) currentUser.nickname = result.profile.nickname;
@@ -109,11 +158,17 @@ const CB = {
   },
 
   getShareNickname() {
-    return localStorage.getItem('quizmiao_share_nickname') || '';
+    try {
+      return localStorage.getItem('quizmiao_share_nickname') || '';
+    } catch (_) {
+      return '';
+    }
   },
 
   setShareNickname(name) {
-    localStorage.setItem('quizmiao_share_nickname', name);
+    try {
+      localStorage.setItem('quizmiao_share_nickname', name);
+    } catch (_) {}
   },
 
   async callFunction(name, data = {}) {
@@ -140,7 +195,12 @@ const CB = {
   },
 
   async saveShare(questions, name) {
-    return await this.callFunction('share-manage', { action: 'save', questions, name });
+    return await this.callFunction('share-manage', {
+      action: 'save',
+      questions,
+      name,
+      trackAccount: this._isAccountActive(),
+    });
   },
 
   async getShare(id) {

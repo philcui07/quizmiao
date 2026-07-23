@@ -8,11 +8,12 @@ const db = cloud.database();
 const SHARE_TTL = 24 * 60 * 60 * 1000;
 
 exports.main = async (event, context) => {
-  const userId = getAuthUserId(context);
+  const authId = getAuthUserId(context);
   try {
+    const userId = authId ? await getAccountOwnerId(authId) : '';
     switch (event.action) {
       case 'save':
-        return await saveShare(event, userId);
+        return await saveShare(event, event.trackAccount === true ? userId : '');
       case 'get':
         return await getShare(event);
       case 'list':
@@ -26,6 +27,13 @@ exports.main = async (event, context) => {
     return { ok: false, error: '分享操作失败' };
   }
 };
+
+async function getAccountOwnerId(authId) {
+  const result = await db.collection('users').where({ owner_id: authId }).limit(1).get();
+  const profile = result.data[0];
+  if (!profile?.onboarded) return '';
+  return cleanText(profile.canonical_owner_id, 128) || authId;
+}
 
 async function saveShare(event, userId) {
   const questions = sanitizeQuestions(event.questions);

@@ -10,7 +10,7 @@ const Store = {
   wrong: [],        // 错题记录 [{q, cat, picked, correct, exp}]
 
   // v1.1.0 新增
-  user: null,       // 当前登录用户 {openid, phone, nickname}
+  user: null,       // 当前登录资料 {uid, phone, phoneVerified, nickname, identityScope}
   historyId: null,  // 当前自建题集在 quiz_history 中的记录 ID
   historyCreatePromise: null,
   quizSessionId: null,

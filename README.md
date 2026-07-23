@@ -16,7 +16,7 @@ node --test tests/frontend-state.test.js
 find docs cloudbase -name '*.js' -not -path '*/node_modules/*' -exec node --check {} \;
 ```
 
-静态页面从 `docs/` 启动本地 HTTP 服务后访问。账号、短信、历史和分享联调需要按 `cloudbase/DEPLOYMENT.md` 配置 CloudBase 环境。
+静态页面从 `docs/` 启动本地 HTTP 服务后访问。账号、运营商认证、历史和分享联调需要按 `cloudbase/DEPLOYMENT.md` 配置 CloudBase 环境。
 
 ## 版本规则
 

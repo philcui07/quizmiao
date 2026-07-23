@@ -13,7 +13,7 @@
 <meta property="og:locale" content="zh_CN">
 <meta property="og:site_name" content="拾知猫">
 <meta property="og:image" content="icon.png">
-<link rel="stylesheet" href="css/style.css?v=110">
+<link rel="stylesheet" href="css/style.css?v=111">
 <style>
 /* Toast */
 #toast { position:fixed; top:calc(54px + env(safe-area-inset-top, 0px)); left:50%; transform:translateX(-50%); background:rgba(0,0,0,.78); color:#fff; font-size:13px; padding:10px 20px; border-radius:8px; z-index:9999; opacity:0; transition:opacity .25s; pointer-events:none; white-space:nowrap; max-width:80vw; overflow:hidden; text-overflow:ellipsis; }
@@ -26,7 +26,7 @@
 .nav-user-info { color:rgba(255,255,255,.85); font-size:13px; cursor:pointer; }
 .nav-login-btn { color:rgba(255,255,255,.85); font-size:13px; cursor:pointer; padding:4px 12px; border:1px solid rgba(255,255,255,.3); border-radius:6px; }
 /* v1.1.0: 历史入口卡片 */
-.history-entry-card { margin:0 16px 12px; padding:14px 16px; background:var(--card,#fff); border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.06); cursor:pointer; display:flex; align-items:center; gap:12px; }
+.history-entry-card { width:calc(100% - 32px); max-width:500px; margin:0 auto 12px; padding:14px 16px; border:0; background:var(--card,#fff); border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,.06); cursor:pointer; display:flex; align-items:center; gap:12px; color:inherit; text-align:left; font:inherit; }
 .history-entry-icon { font-size:24px; }
 .history-entry-text { flex:1; }
 .history-entry-title { font-size:15px; font-weight:600; color:var(--text1,#333); }
@@ -44,11 +44,6 @@
 .history-date { font-size:11px; color:var(--text3,#999); margin-top:4px; }
 .tag-shared { background:#fef3c7; color:#92400e; }
 .tag-self { background:#dbeafe; color:#1e40af; }
-/* v1.1.0: 登录弹窗 */
-.login-field { display:flex; gap:8px; margin-bottom:12px; }
-.login-field input { flex:1; }
-.login-code-btn { white-space:nowrap; padding:10px 14px; font-size:13px; border:1px solid var(--accent,#4f46e5); color:var(--accent,#4f46e5); background:transparent; border-radius:8px; cursor:pointer; }
-.login-code-btn:disabled { opacity:.5; }
 /* v1.1.0: 分享命名弹窗 */
 .share-name-input { width:100%; padding:12px; border:1px solid var(--border,#e5e7eb); border-radius:8px; font-size:15px; box-sizing:border-box; }
 </style>
@@ -122,14 +117,14 @@
   </div>
 
   <!-- v1.1.0: 历史记录入口 -->
-  <div class="history-entry-card" id="history-entry" style="display:none" onclick="App.navigateTo('history')">
+  <button type="button" class="history-entry-card" id="history-entry" onclick="App.openHistory()">
     <div class="history-entry-icon">📊</div>
     <div class="history-entry-text">
       <div class="history-entry-title">历史记录</div>
       <div class="history-entry-desc">查看题集、练习成绩和好友答题</div>
     </div>
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-  </div>
+  </button>
 
   <div class="footer-text">拾知猫 · v1.1.0</div>
 </div>
@@ -321,18 +316,28 @@
 <!-- v1.1.0: 登录弹窗 -->
 <div id="login-modal" class="modal" style="display:none">
   <div class="modal-mask" onclick="App.closeLoginModal()"></div>
-  <div class="modal-content">
-    <div class="modal-title">登录拾知猫</div>
-    <div class="modal-desc">手机号 + 验证码登录，记录你的练习历史</div>
-    <div class="login-field">
-      <input type="tel" class="input-area" id="login-phone" placeholder="手机号" maxlength="11" style="flex:1" />
+  <div class="modal-content login-card" role="dialog" aria-modal="true" aria-labelledby="login-title">
+    <div class="login-brand" aria-hidden="true">拾</div>
+    <div class="modal-title" id="login-title">登录拾知猫</div>
+    <div class="modal-desc login-subtitle">继续查看你的题集和练习记录</div>
+
+    <button type="button" class="one-click-login" id="one-click-login-btn" onclick="App.startOneClickLogin()">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2"></rect><path d="M10 18h4"></path></svg>
+      <span id="one-click-login-label">本机号码一键登录</span>
+    </button>
+    <div class="login-status" id="one-click-status"></div>
+
+    <button type="button" class="manual-login-toggle" id="manual-login-toggle" onclick="App.showManualLogin()">使用手机号继续</button>
+    <div class="manual-login-panel" id="manual-login-panel" style="display:none">
+      <div class="login-divider"><span>手机号登录</span></div>
+      <label class="login-phone-field" for="login-phone">
+        <span class="country-code">+86</span>
+        <input type="tel" inputmode="numeric" autocomplete="tel-national" id="login-phone" placeholder="请输入手机号" maxlength="11" />
+      </label>
+      <div class="login-status manual" id="manual-login-status">未验证手机号，仅绑定当前设备身份</div>
+      <button type="button" class="btn btn-primary btn-block manual-login-submit" onclick="App.doManualLogin()">登录并继续</button>
     </div>
-    <div class="login-field">
-      <input type="text" class="input-area" id="login-code" placeholder="验证码" maxlength="6" style="flex:1" />
-      <button class="login-code-btn" id="login-code-btn" onclick="App.sendLoginCode()">获取验证码</button>
-    </div>
-    <button class="btn btn-primary btn-flex" onclick="App.doLogin()" style="margin-top:8px">登录</button>
-    <button class="modal-close" onclick="App.closeLoginModal()">取消</button>
+    <button type="button" class="modal-close login-cancel" onclick="App.closeLoginModal()">暂不登录</button>
   </div>
 </div>
 
@@ -372,9 +377,11 @@
 <script src="https://web-9gikj6ufa6efe07a-1259785600.tcloudbaseapp.com/cloudbase-js-sdk/1.7.2/cloudbase.full.js"></script>
 
 <!-- App Scripts -->
-<script src="js/store.js?v=110"></script>
-<script src="js/cloudbase.js?v=110"></script>
-<script src="js/api.js?v=110"></script>
-<script src="js/app.js?v=110"></script>
+<script src="js/phone-auth-config.js?v=111"></script>
+<script src="js/phone-auth.js?v=111"></script>
+<script src="js/store.js?v=111"></script>
+<script src="js/cloudbase.js?v=111"></script>
+<script src="js/api.js?v=111"></script>
+<script src="js/app.js?v=111"></script>
 </body>
 </html>

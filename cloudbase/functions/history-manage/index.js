@@ -6,10 +6,12 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
 
 exports.main = async (event, context) => {
-  const userId = getAuthUserId(context);
-  if (!userId) return { ok: false, error: '请先登录' };
+  const authId = getAuthUserId(context);
+  if (!authId) return { ok: false, error: '请先登录' };
 
   try {
+    const userId = await getAccountOwnerId(authId);
+    if (!userId) return { ok: false, error: '请先登录' };
     switch (event.action) {
       case 'create':
         return await createQuiz(event, userId);
@@ -29,6 +31,13 @@ exports.main = async (event, context) => {
     return { ok: false, error: '历史记录操作失败' };
   }
 };
+
+async function getAccountOwnerId(authId) {
+  const result = await db.collection('users').where({ owner_id: authId }).limit(1).get();
+  const profile = result.data[0];
+  if (!profile?.onboarded) return '';
+  return cleanText(profile.canonical_owner_id, 128) || authId;
+}
 
 async function createQuiz(event, userId) {
   const questions = sanitizeQuestions(event.questions);

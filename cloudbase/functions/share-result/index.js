@@ -6,12 +6,13 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
 
 exports.main = async (event, context) => {
-  const userId = getAuthUserId(context);
+  const authId = getAuthUserId(context);
   try {
     switch (event.action) {
       case 'save':
-        return await saveResult(event, userId);
+        return await saveResult(event, authId);
       case 'list':
+        const userId = authId ? await getAccountOwnerId(authId) : '';
         if (!userId) return { ok: false, error: '请先登录' };
         return await listResults(event, userId);
       default:
@@ -22,6 +23,13 @@ exports.main = async (event, context) => {
     return { ok: false, error: '答题记录操作失败' };
   }
 };
+
+async function getAccountOwnerId(authId) {
+  const result = await db.collection('users').where({ owner_id: authId }).limit(1).get();
+  const profile = result.data[0];
+  if (!profile?.onboarded) return '';
+  return cleanText(profile.canonical_owner_id, 128) || authId;
+}
 
 async function saveResult(event, participantId) {
   const shareId = cleanText(event.shareId, 64);

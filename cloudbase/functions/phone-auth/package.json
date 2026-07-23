@@ -1,0 +1,10 @@
+{
+  "name": "phone-auth",
+  "version": "1.1.0",
+  "description": "拾知猫 Web 运营商一键认证服务端校验",
+  "main": "index.js",
+  "dependencies": {
+    "@cloudbase/node-sdk": "^2.5.0"
+  },
+  "timeout": 10
+}

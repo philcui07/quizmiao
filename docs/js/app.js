@@ -2,7 +2,7 @@
  * 拾知猫 v1.1.0 — Web 版主应用
  *
  * v1.1.0 新增功能：
- * 1. 登录系统（手机号+验证码）
+ * 1. CloudBase 设备身份 + 运营商一键认证（手动手机号回退）
  * 2. 历史出题记录 + 练习成绩 + 错题集
  * 3. 分享命名 + 24h时效 + 被分享人昵称弹窗
  * 4. 分享链接答题记录同步给分享人
@@ -12,7 +12,7 @@ const App = {
   _history: ['index'],
   _streamController: null,
   _shareData: null,
-  _loginVerificationInfo: null, // 验证码登录临时存储
+  _pendingRoute: null,
 
   /* ==============================================
      通用 UI 工具
@@ -38,6 +38,10 @@ const App = {
      页面导航
      ============================================== */
   navigateTo(page) {
+    if (this._requiresAccount(page) && !Store.user) {
+      this.openLoginModal({ returnTo: page });
+      return false;
+    }
     const current = this._history[this._history.length - 1];
     this._showPage(current, false);
     if (current === 'confirm') this._cancelStream();
@@ -46,6 +50,11 @@ const App = {
     this._renderPage(page);
     this._updateNavBar();
     window.scrollTo(0, 0);
+    return true;
+  },
+
+  _requiresAccount(page) {
+    return ['history', 'history-detail', 'share-detail'].includes(page);
   },
 
   redirectTo(page) {
@@ -121,89 +130,92 @@ const App = {
      v1.1.0: 登录系统
      ============================================== */
 
-  openLoginModal() {
+  openLoginModal({ returnTo = null } = {}) {
+    this._pendingRoute = returnTo;
     document.getElementById('login-modal').style.display = '';
     document.getElementById('login-phone').value = '';
-    document.getElementById('login-code').value = '';
-    document.getElementById('login-code-btn').disabled = false;
-    document.getElementById('login-code-btn').textContent = '获取验证码';
-    document.getElementById('login-code-btn').dataset.countdown = '0';
+    const status = PhoneAuth.getStatus();
+    const oneClickButton = document.getElementById('one-click-login-btn');
+    oneClickButton.disabled = !status.available;
+    oneClickButton.classList.remove('is-loading');
+    document.getElementById('one-click-login-label').textContent = status.available ? '本机号码一键登录' : '一键登录暂不可用';
+    document.getElementById('one-click-status').textContent = status.available ? '由运营商安全认证本机号码' : status.reason;
+    document.getElementById('manual-login-toggle').style.display = status.available ? '' : 'none';
+    document.getElementById('manual-login-panel').style.display = status.available ? 'none' : '';
   },
 
   closeLoginModal() {
     document.getElementById('login-modal').style.display = 'none';
+    this._pendingRoute = null;
   },
 
-  async sendLoginCode() {
-    const phone = document.getElementById('login-phone').value.trim();
-    if (!phone || !/^1\d{10}$/.test(phone)) {
-      this.toast('请输入正确的手机号');
+  showManualLogin(reason = '') {
+    document.getElementById('manual-login-toggle').style.display = 'none';
+    document.getElementById('manual-login-panel').style.display = '';
+    if (reason) document.getElementById('manual-login-status').textContent = reason;
+    setTimeout(() => document.getElementById('login-phone').focus(), 50);
+  },
+
+  async startOneClickLogin() {
+    const status = PhoneAuth.getStatus();
+    if (!status.available) {
+      this.showManualLogin(status.reason);
       return;
     }
 
-    const btn = document.getElementById('login-code-btn');
-    btn.disabled = true;
-    btn.textContent = '发送中...';
+    const button = document.getElementById('one-click-login-btn');
+    button.disabled = true;
+    button.classList.add('is-loading');
+    document.getElementById('one-click-login-label').textContent = '正在安全认证...';
 
-    const result = await CB.sendSMSCode(phone);
+    let result;
+    try {
+      const authorization = await PhoneAuth.authorize();
+      result = await CB.loginWithCarrier(authorization);
+    } catch (e) {
+      result = { ok: false, error: e.message || '一键认证失败' };
+    }
+
+    button.classList.remove('is-loading');
     if (!result.ok) {
-      this.toast(result.error || '验证码发送失败');
-      btn.disabled = false;
-      btn.textContent = '获取验证码';
+      button.disabled = false;
+      document.getElementById('one-click-login-label').textContent = '重新尝试一键登录';
+      this.showManualLogin(result.error || '一键认证失败，请输入手机号继续');
       return;
     }
-
-    this._loginVerificationInfo = result.verificationInfo;
-    this.toast('验证码已发送');
-
-    // 倒计时
-    let count = 60;
-    btn.dataset.countdown = String(count);
-    const timer = setInterval(() => {
-      count--;
-      if (count <= 0) {
-        clearInterval(timer);
-        btn.disabled = false;
-        btn.textContent = '获取验证码';
-      } else {
-        btn.textContent = count + 's';
-      }
-    }, 1000);
+    this._completeLogin(result.user, true);
   },
 
-  async doLogin() {
+  async doManualLogin() {
     const phone = document.getElementById('login-phone').value.trim();
-    const code = document.getElementById('login-code').value.trim();
 
     if (!phone || !/^1\d{10}$/.test(phone)) {
       this.toast('请输入正确的手机号');
       return;
     }
-    if (!code || code.length < 4) {
-      this.toast('请输入验证码');
-      return;
-    }
-    if (!this._loginVerificationInfo) {
-      this.toast('请先获取验证码');
-      return;
-    }
 
-    this.showLoading('登录中...');
-    const result = await CB.loginWithSMSCode(phone, code, this._loginVerificationInfo);
+    this.showLoading('正在建立本机账号...');
+    const result = await CB.loginWithManualPhone(phone);
     this.hideLoading();
 
     if (!result.ok) {
       this.toast(result.error || '登录失败');
       return;
     }
+    this._completeLogin(result.user, false);
+  },
 
-    Store.user = result.user;
-    this.closeLoginModal();
+  _completeLogin(user, verified) {
+    const returnTo = this._pendingRoute;
+    Store.user = user;
+    document.getElementById('login-modal').style.display = 'none';
+    this._pendingRoute = null;
     this._updateLoginUI();
     if (Store.quizSource === 'self' && Store.questions?.length) {
       this.pages.confirm._ensureHistoryRecord();
     }
-    this.toast('登录成功');
+    this.toast(verified ? '本机号码认证成功' : '已在当前设备登录');
+    if (returnTo) this.navigateTo(returnTo);
   },
 
   async doLogout() {
@@ -215,6 +227,7 @@ const App = {
     Store.user = null;
     Store.resetHistoryState();
     this.closeAccountModal();
+    if (this._requiresAccount(this._history[this._history.length - 1])) this.goHome();
     this._updateLoginUI();
     this.toast('已退出登录');
   },
@@ -230,15 +243,16 @@ const App = {
         userInfo.textContent = nickname;
       }
       if (loginBtn) loginBtn.style.display = 'none';
-      // 显示历史入口
-      const historyEntry = document.getElementById('history-entry');
-      if (historyEntry) historyEntry.style.display = '';
     } else {
       if (userInfo) userInfo.style.display = 'none';
       if (loginBtn) loginBtn.style.display = '';
-      const historyEntry = document.getElementById('history-entry');
-      if (historyEntry) historyEntry.style.display = 'none';
     }
+    const historyEntry = document.getElementById('history-entry');
+    if (historyEntry) historyEntry.style.display = '';
+  },
+
+  openHistory() {
+    return this.navigateTo('history');
   },
 
   /* ==============================================
@@ -254,9 +268,9 @@ const App = {
       this.openLoginModal();
       return;
     }
-    const phone = Store.user.phone ? Store.user.phone.replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2') : 'CloudBase 账号';
+    const phone = Store.user.phone ? Store.user.phone.replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2') : '本机账号';
     document.getElementById('account-name').textContent = CB.getNickname() || '未设置昵称';
-    document.getElementById('account-phone').textContent = phone;
+    document.getElementById('account-phone').textContent = phone + (Store.user.phoneVerified ? ' · 已认证' : ' · 当前设备');
     document.getElementById('account-modal').style.display = '';
   },
 
@@ -266,7 +280,7 @@ const App = {
 
   openHistoryFromAccount() {
     this.closeAccountModal();
-    this.navigateTo('history');
+    this.openHistory();
   },
 
   openNicknameFromAccount() {
@@ -1091,8 +1105,7 @@ const App = {
 
       async render() {
         if (!Store.user) {
-          App.toast('请先登录');
-          App.openLoginModal();
+          App.openLoginModal({ returnTo: 'history' });
           return;
         }
         await this.switchTab(this._activeTab, true);

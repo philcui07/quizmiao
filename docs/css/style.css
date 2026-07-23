@@ -453,8 +453,119 @@ body {
 .account-action.danger { color: var(--danger); }
 .nav-user-info { display: block; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* 登录与账号入口 */
+.history-entry-card {
+  width: calc(100% - 32px);
+  max-width: 500px;
+  border: 0;
+  border-radius: 8px;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+.history-entry-card:focus-visible,
+.one-click-login:focus-visible,
+.manual-login-toggle:focus-visible,
+.login-phone-field:focus-within {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.login-card {
+  width: min(400px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  padding: 28px 24px 20px;
+  border-radius: 8px;
+  box-shadow: 0 16px 48px rgba(0,0,0,.18);
+}
+.login-brand {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 14px;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 20px;
+  font-weight: 800;
+}
+.login-subtitle { margin-bottom: 18px; }
+.one-click-login {
+  width: 100%;
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  font: 700 15px/1 inherit;
+  cursor: pointer;
+}
+.one-click-login:hover:not(:disabled) { background: var(--primary-d); }
+.one-click-login:disabled { background: #D8DDD9; color: #6F7771; cursor: default; }
+.one-click-login svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.one-click-login.is-loading svg { animation: loginPulse 1s ease-in-out infinite; }
+@keyframes loginPulse { 50% { opacity: .4; } }
+.login-status {
+  min-height: 20px;
+  margin: 7px 0 2px;
+  color: var(--text3);
+  font-size: 12px;
+  line-height: 20px;
+}
+.login-status.manual { margin: 6px 0 12px; text-align: left; }
+.manual-login-toggle {
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text2);
+  font: 600 13px/1 inherit;
+  cursor: pointer;
+}
+.manual-login-panel { margin-top: 2px; }
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 14px;
+  color: var(--text3);
+  font-size: 12px;
+}
+.login-divider::before, .login-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.login-phone-field {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+.country-code { flex: 0 0 auto; padding: 0 12px; border-right: 1px solid var(--line); color: var(--text2); font-weight: 600; }
+.login-phone-field input {
+  min-width: 0;
+  width: 100%;
+  height: 46px;
+  padding: 0 12px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: 16px/1 inherit;
+  letter-spacing: 0;
+}
+.manual-login-submit { min-height: 48px; }
+.login-cancel { margin-top: 12px; background: transparent; color: var(--text3); }
+.login-cancel:hover { background: var(--line2); }
+
 @media (max-width: 360px) {
   .nav-user-info { max-width: 72px; }
+  .login-card { width: calc(100vw - 20px); padding: 22px 16px 16px; }
 }
 
 @media (min-width: 640px) {
@@ -464,4 +575,5 @@ body {
   .bottom-bar .btn-icon { width: 48px; }
   .bottom-bar .btn-flex { max-width: 360px; }
   .history-card, .attempt-card { width: 500px; }
+  .history-entry-card { margin-left: auto; margin-right: auto; }
 }
