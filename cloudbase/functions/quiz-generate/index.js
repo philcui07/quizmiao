@@ -20,10 +20,11 @@ exports.main = async (event, context) => {
 // ---- AI 出题 ----
 async function generate(event) {
   const t0 = Date.now();
-  const { content, count } = event;
-  if (!content) return { ok: false, error: "缺少内容" };
+  const content = String(event.content || '').trim().slice(0, 50000);
+  if (content.length < 20) return { ok: false, error: "内容至少需要 20 个字符" };
+  if (!DEEPSEEK_KEY) return { ok: false, error: "服务尚未配置 DeepSeek API Key" };
 
-  const n = count || 10;
+  const n = Math.max(5, Math.min(Number(event.count) || 10, 50));
   const prompt = buildPrompt(content, n);
 
   try {
@@ -37,7 +38,7 @@ async function generate(event) {
         model: DEEPSEEK_MODEL,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.5,
-        max_tokens: 8192,
+        max_tokens: Math.min(8192, Math.max(2048, n * 300)),
         stream: false,
       }),
     });
@@ -84,10 +85,11 @@ async function generate(event) {
 
 // ---- AI 验证答案 ----
 async function verify(event) {
-  const { questions } = event;
-  if (!Array.isArray(questions) || questions.length === 0) {
+  const questions = validateQuestions(Array.isArray(event.questions) ? event.questions.slice(0, 100) : []);
+  if (questions.length === 0) {
     return { ok: false, error: "缺少题目数据" };
   }
+  if (!DEEPSEEK_KEY) return { ok: false, error: "服务尚未配置 DeepSeek API Key" };
 
   const BATCH_SIZE = 20;
   const verified = [];

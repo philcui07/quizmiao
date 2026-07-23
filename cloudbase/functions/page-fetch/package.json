@@ -1,6 +1,6 @@
 {
   "name": "page-fetch",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "拾知猫 网页内容抓取云函数",
   "main": "index.js",
   "dependencies": {},

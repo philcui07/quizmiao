@@ -374,10 +374,94 @@ body {
 .modal-close:hover { background: var(--line); }
 .modal-close:active { background: #ddd; }
 
+/* =================================================
+   v1.1.0 账号、题集历史与分享答题记录
+   ================================================= */
+.history-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-top: 16px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--line2);
+}
+.history-tab {
+  min-height: 36px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text3);
+  font: 600 14px/1 inherit;
+  cursor: pointer;
+}
+.history-tab.active { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.history-card {
+  display: block;
+  width: calc(100% - 32px);
+  max-width: 500px;
+  margin: 0 auto 10px;
+  border: 0;
+  border-radius: 8px;
+  text-align: left;
+  font-family: inherit;
+}
+.history-card-header, .history-stats, .history-date { display: flex; }
+.history-card-header { width: 100%; }
+.history-stats { flex-wrap: wrap; }
+.history-date { display: block; }
+.tag-expired { color: #666; background: #eee; }
+.muted { color: var(--text3); }
+.load-more-row { min-height: 56px; padding: 8px 16px; display: flex; justify-content: center; }
+.empty-state { color: var(--text3); padding: 48px 16px; text-align: center; }
+.empty-state.compact { padding: 24px 16px; }
+.detail-meta { margin-top: 12px; color: var(--text2); font-size: 13px; }
+.attempt-card {
+  width: calc(100% - 32px);
+  max-width: 500px;
+  margin: 0 auto 10px;
+  background: var(--card);
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.attempt-card summary {
+  min-height: 64px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.attempt-card summary::-webkit-details-marker { display: none; }
+.attempt-card summary > span { display: flex; flex-direction: column; }
+.attempt-card summary strong { font-size: 14px; }
+.attempt-card summary small { color: var(--text3); font-size: 11px; font-weight: 400; }
+.attempt-score { text-align: right; color: var(--primary-d); font-weight: 700; white-space: nowrap; }
+.attempt-wrong-list { border-top: 1px solid var(--line2); padding: 0 14px 6px; }
+.attempt-perfect { padding: 16px 0 10px; color: var(--primary-d); text-align: center; }
+.share-account-hint { margin-top: 10px; color: var(--primary-d); font-size: 12px; text-align: left; }
+.share-account-hint.warning { color: #ad6800; }
+.account-summary { display: flex; align-items: center; gap: 12px; text-align: left; margin-bottom: 16px; }
+.account-avatar { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--primary); color: #fff; font-size: 18px; font-weight: 700; flex: 0 0 auto; }
+.account-title { margin: 0; font-size: 16px; }
+.account-summary .modal-desc { margin: 2px 0 0; }
+.account-actions { border-top: 1px solid var(--line2); margin-bottom: 12px; }
+.account-action { width: 100%; min-height: 46px; border: 0; border-bottom: 1px solid var(--line2); background: transparent; color: var(--text); font: 500 14px/1 inherit; text-align: left; cursor: pointer; }
+.account-action.danger { color: var(--danger); }
+.nav-user-info { display: block; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 360px) {
+  .nav-user-info { max-width: 72px; }
+}
+
 @media (min-width: 640px) {
   .card { max-width: 500px; margin: 16px auto; }
   .top-actions, .qconf-list, .bottom-bar-inner { max-width: 500px; margin: 0 auto; }
   .bottom-bar { display: flex; justify-content: center; }
   .bottom-bar .btn-icon { width: 48px; }
   .bottom-bar .btn-flex { max-width: 360px; }
+  .history-card, .attempt-card { width: 500px; }
 }

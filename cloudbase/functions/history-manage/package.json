@@ -1,6 +1,6 @@
 {
   "name": "history-manage",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "拾知猫 历史记录管理云函数",
   "main": "index.js",
   "dependencies": {

@@ -1,68 +1,62 @@
 /**
- * 拾知猫 v1.1.0 — CloudBase API 模块
- * 替代 v1.0.1 的 Vercel 后端代理
- *
- * 功能：
- * - CloudBase SDK 初始化
- * - 短信验证码登录（CloudBase 内置）
- * - 用户昵称管理
- * - 云函数调用封装
- * - 分享数据管理（24h时效）
- * - 历史记录管理
- * - 分享答题记录同步
+ * 拾知猫 v1.1.0 - CloudBase browser client.
+ * User identity is resolved again inside every cloud function. The browser never
+ * sends an openid/uid as an authorization credential.
  */
 
-// CloudBase 环境ID（部署后在 CloudBase 控制台获取，替换此处）
-const CLOUDBASE_ENV_ID = 'quizmiao'; // ← 部署时替换为实际环境ID
+const CLOUDBASE_ENV_ID = 'quizmiao'; // 部署时替换为真实环境 ID
 
 let cloudApp = null;
 let cloudAuth = null;
 let currentUser = null;
 
 const CB = {
-  /* ==============================================
-     CloudBase 初始化
-     ============================================== */
   init() {
     if (cloudApp) return cloudApp;
+    if (!globalThis.cloudbase) {
+      throw new Error('CloudBase SDK 加载失败，请检查网络或 SDK 地址');
+    }
     cloudApp = cloudbase.init({ env: CLOUDBASE_ENV_ID });
     cloudAuth = cloudApp.auth({ persistence: 'local' });
     return cloudApp;
   },
 
-  /* ==============================================
-     登录状态
-     ============================================== */
   async isLoggedIn() {
-    this.init();
-    const state = await cloudAuth.hasLoginState();
-    return state !== null;
+    try {
+      this.init();
+      return (await cloudAuth.hasLoginState()) !== null;
+    } catch (e) {
+      console.warn('[CloudBase] login state unavailable:', e.message);
+      return false;
+    }
   },
 
-  async getCurrentUser() {
-    if (currentUser) return currentUser;
-    this.init();
+  async getCurrentUser({ refresh = false } = {}) {
+    if (currentUser && !refresh) return currentUser;
     try {
+      this.init();
       const state = await cloudAuth.getLoginState();
-      if (!state) return null;
+      if (!state) {
+        currentUser = null;
+        return null;
+      }
       currentUser = {
-        openid: state.user?.uid || state.user?.openid || '',
-        phone: state.user?.phone || '',
+        uid: state.user?.uid || state.user?.openid || '',
+        phone: state.user?.phone || state.user?.phone_number || '',
+        nickname: '',
       };
+      const profile = await this.getProfile().catch(() => null);
+      if (profile?.ok) currentUser.nickname = profile.profile?.nickname || '';
       return currentUser;
     } catch (e) {
+      currentUser = null;
       return null;
     }
   },
 
-  /* ==============================================
-     短信验证码登录
-     ============================================== */
-
-  // 发送验证码
   async sendSMSCode(phoneNumber) {
-    this.init();
     try {
+      this.init();
       const verificationInfo = await cloudAuth.getVerification({
         phone_number: '+86 ' + phoneNumber,
       });
@@ -72,52 +66,48 @@ const CB = {
     }
   },
 
-  // 验证码登录
   async loginWithSMSCode(phoneNumber, code, verificationInfo) {
-    this.init();
+    if (!verificationInfo) {
+      return { ok: false, error: '请先获取验证码' };
+    }
     try {
-      const loginState = await cloudAuth.signInWithSms({
+      this.init();
+      await cloudAuth.signInWithSms({
         verificationInfo,
         verificationCode: code,
-        phoneNum: '+86 ' + phoneNumber,
       });
-      currentUser = {
-        openid: loginState?.user?.uid || '',
-        phone: phoneNumber,
-      };
+      currentUser = await this.getCurrentUser({ refresh: true });
+      if (currentUser && !currentUser.phone) currentUser.phone = phoneNumber;
       return { ok: true, user: currentUser };
     } catch (e) {
       return { ok: false, error: e.message || '登录失败' };
     }
   },
 
-  // 登出
   async logout() {
-    this.init();
     try {
+      this.init();
       await cloudAuth.signOut();
       currentUser = null;
-      localStorage.removeItem('quizmiao_nickname');
       return { ok: true };
     } catch (e) {
-      return { ok: false, error: e.message };
+      return { ok: false, error: e.message || '退出失败' };
     }
   },
 
-  /* ==============================================
-     昵称管理（本地存储 + 可选同步到 DB）
-     ============================================== */
   getNickname() {
-    return localStorage.getItem('quizmiao_nickname') || '';
+    return currentUser?.nickname || '';
   },
 
-  setNickname(name) {
-    localStorage.setItem('quizmiao_nickname', name);
+  async setNickname(name) {
+    const result = await this.callFunction('profile-manage', {
+      action: 'update',
+      nickname: name,
+    });
+    if (result.ok && currentUser) currentUser.nickname = result.profile.nickname;
+    return result;
   },
 
-  /* ==============================================
-     被分享人昵称（跨链接复用）
-     ============================================== */
   getShareNickname() {
     return localStorage.getItem('quizmiao_share_nickname') || '';
   },
@@ -126,22 +116,10 @@ const CB = {
     localStorage.setItem('quizmiao_share_nickname', name);
   },
 
-  /* ==============================================
-     云函数调用封装
-     ============================================== */
-  async callFunction(name, data) {
+  async callFunction(name, data = {}) {
     this.init();
-    // 注入用户信息
-    const user = await this.getCurrentUser();
-    const fullData = {
-      ...data,
-      userInfo: user ? { openid: user.openid, phone: user.phone } : null,
-    };
     try {
-      const result = await cloudApp.callFunction({
-        name,
-        data: fullData,
-      });
+      const result = await cloudApp.callFunction({ name, data });
       return result.result;
     } catch (e) {
       console.error(`[CloudBase] callFunction ${name} error:`, e);
@@ -149,85 +127,59 @@ const CB = {
     }
   },
 
-  /* ==============================================
-     业务 API
-     ============================================== */
-
-  // AI 出题
-  async generateQuestions(content, count) {
-    return await this.callFunction('quiz-generate', {
-      action: 'generate',
-      content,
-      count,
-    });
+  async getProfile() {
+    return await this.callFunction('profile-manage', { action: 'get' });
   },
 
-  // 网页抓取
+  async generateQuestions(content, count) {
+    return await this.callFunction('quiz-generate', { action: 'generate', content, count });
+  },
+
   async fetchPage(url) {
     return await this.callFunction('page-fetch', { url });
   },
 
-  // 保存分享（v1.1.0: 带24h时效 + 命名）
   async saveShare(questions, name) {
-    return await this.callFunction('share-manage', {
-      action: 'save',
-      questions,
-      name,
-    });
+    return await this.callFunction('share-manage', { action: 'save', questions, name });
   },
 
-  // 获取分享
   async getShare(id) {
-    return await this.callFunction('share-manage', {
-      action: 'get',
-      id,
-    });
+    return await this.callFunction('share-manage', { action: 'get', id });
   },
 
-  // 列出我的分享
-  async listMyShares() {
-    return await this.callFunction('share-manage', {
-      action: 'list',
-    });
+  async listMyShares(page = 1) {
+    return await this.callFunction('share-manage', { action: 'list', page });
   },
 
-  // 保存练习历史
-  async saveHistory(data) {
+  async createQuizHistory(data) {
+    return await this.callFunction('history-manage', { action: 'create', ...data });
+  },
+
+  async updateQuizHistory(id, questions) {
     return await this.callFunction('history-manage', {
-      action: 'save',
-      ...data,
+      action: 'updateQuestions',
+      id,
+      questions,
     });
   },
 
-  // 历史列表
+  async addHistoryAttempt(data) {
+    return await this.callFunction('history-manage', { action: 'addAttempt', ...data });
+  },
+
   async listHistory(page = 1) {
-    return await this.callFunction('history-manage', {
-      action: 'list',
-      page,
-    });
+    return await this.callFunction('history-manage', { action: 'list', page });
   },
 
-  // 历史详情
   async getHistoryDetail(id) {
-    return await this.callFunction('history-manage', {
-      action: 'detail',
-      id,
-    });
+    return await this.callFunction('history-manage', { action: 'detail', id });
   },
 
-  // 保存分享答题结果（被分享人做完后）
   async saveShareResult(data) {
-    return await this.callFunction('share-result', {
-      action: 'save',
-      ...data,
-    });
+    return await this.callFunction('share-result', { action: 'save', ...data });
   },
 
-  // 查看分享的答题记录（分享人查看）
   async listShareResults(shareId) {
-    return await this.callFunction('share-result', {
-      action: 'list',
-      shareId,
-    });
+    return await this.callFunction('share-result', { action: 'list', shareId });
   },
 };

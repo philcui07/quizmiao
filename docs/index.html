@@ -13,7 +13,7 @@
 <meta property="og:locale" content="zh_CN">
 <meta property="og:site_name" content="拾知猫">
 <meta property="og:image" content="icon.png">
-<link rel="stylesheet" href="css/style.css?v=20">
+<link rel="stylesheet" href="css/style.css?v=110">
 <style>
 /* Toast */
 #toast { position:fixed; top:calc(54px + env(safe-area-inset-top, 0px)); left:50%; transform:translateX(-50%); background:rgba(0,0,0,.78); color:#fff; font-size:13px; padding:10px 20px; border-radius:8px; z-index:9999; opacity:0; transition:opacity .25s; pointer-events:none; white-space:nowrap; max-width:80vw; overflow:hidden; text-overflow:ellipsis; }
@@ -32,7 +32,7 @@
 .history-entry-title { font-size:15px; font-weight:600; color:var(--text1,#333); }
 .history-entry-desc { font-size:12px; color:var(--text3,#999); margin-top:2px; }
 /* v1.1.0: 历史列表 */
-.history-card { background:var(--card,#fff); border-radius:12px; padding:14px 16px; margin:0 16px 10px; box-shadow:0 1px 3px rgba(0,0,0,.06); cursor:pointer; transition:transform .15s; }
+.history-card { display:block; width:calc(100% - 32px); max-width:500px; background:var(--card,#fff); border:0; border-radius:8px; padding:14px 16px; margin:0 auto 10px; box-shadow:0 1px 3px rgba(0,0,0,.06); cursor:pointer; transition:transform .15s; text-align:left; font-family:inherit; }
 .history-card:active { transform:scale(.98); }
 .history-card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
 .history-title { font-size:14px; font-weight:600; color:var(--text1,#333); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -64,7 +64,7 @@
     <div class="nav-title">拾知猫</div>
     <!-- v1.1.0: 用户区域 -->
     <div class="nav-user">
-      <span class="nav-user-info" id="user-info" style="display:none" onclick="App.openNicknameModal()"></span>
+      <span class="nav-user-info" id="user-info" style="display:none" onclick="App.openAccountModal()"></span>
       <span class="nav-login-btn" id="login-btn" onclick="App.openLoginModal()">登录</span>
     </div>
   </div>
@@ -126,7 +126,7 @@
     <div class="history-entry-icon">📊</div>
     <div class="history-entry-text">
       <div class="history-entry-title">历史记录</div>
-      <div class="history-entry-desc">查看练习次数、成绩和错题集</div>
+      <div class="history-entry-desc">查看题集、练习成绩和好友答题</div>
     </div>
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
   </div>
@@ -212,12 +212,24 @@
 <!-- ====== v1.1.0: Page: history (历史列表页) ====== -->
 <div id="page-history" class="page" style="display:none">
   <div class="card">
-    <div class="section-title">📊 历史记录</div>
-    <div class="section-desc">查看练习次数、成绩和错题集</div>
+    <div class="section-title">历史记录</div>
+    <div class="section-desc">题集与分享答题统一归档在账号下</div>
+    <div class="history-tabs" role="tablist">
+      <button class="history-tab active" data-history-tab="quizzes" onclick="App.pages.history.switchTab('quizzes')">我的题集</button>
+      <button class="history-tab" data-history-tab="shares" onclick="App.pages.history.switchTab('shares')">我的分享</button>
+    </div>
   </div>
-  <div id="history-list"></div>
-  <div style="text-align:center; padding:12px;">
-    <button class="btn btn-outline btn-sm" id="history-load-more" style="display:none" onclick="App.pages.history.loadMore()">加载更多</button>
+  <div id="history-quizzes-panel">
+    <div id="history-list"></div>
+    <div class="load-more-row">
+      <button class="btn btn-outline btn-sm" id="history-load-more" style="display:none" onclick="App.pages.history.loadMore()">加载更多</button>
+    </div>
+  </div>
+  <div id="history-shares-panel" style="display:none">
+    <div id="share-history-list"></div>
+    <div class="load-more-row">
+      <button class="btn btn-outline btn-sm" id="shares-load-more" style="display:none" onclick="App.pages.history.loadMoreShares()">加载更多</button>
+    </div>
   </div>
 </div>
 
@@ -226,19 +238,29 @@
   <div class="card">
     <div class="section-title" id="history-detail-title">练习详情</div>
     <div class="history-date" id="history-detail-date"></div>
-    <div class="practice-header" style="margin-top:12px">
-      <span class="progress-info" id="history-detail-score">0/0</span>
-      <span class="progress-info" id="history-detail-pct">正确率 0%</span>
-    </div>
+    <div class="detail-meta" id="history-detail-meta"></div>
   </div>
 
-  <div class="card wrong-section" id="history-detail-wrong" style="display:none">
-    <div class="section-title">错题回顾（<span id="history-detail-wrong-count">0</span> 道）</div>
-    <div id="history-detail-wrong-list"></div>
-  </div>
+  <div class="section-hint">练习记录</div>
+  <div id="history-attempt-list"></div>
 
   <div class="section-hint">题目列表</div>
   <div class="qconf-list" id="history-detail-questions"></div>
+</div>
+
+<!-- ====== v1.1.0: Page: share-detail (好友答题记录) ====== -->
+<div id="page-share-detail" class="page" style="display:none">
+  <div class="card">
+    <div class="section-title" id="share-detail-title">分享详情</div>
+    <div class="history-date" id="share-detail-date"></div>
+    <div class="detail-meta" id="share-detail-meta"></div>
+  </div>
+
+  <div class="section-hint">好友答题记录</div>
+  <div id="share-result-list"></div>
+
+  <div class="section-hint">题目列表</div>
+  <div class="qconf-list" id="share-detail-questions"></div>
 </div>
 
 <!-- 分享弹窗 -->
@@ -273,6 +295,7 @@
     <div class="modal-title">给这份练习起个名字</div>
     <div class="modal-desc">方便好友识别内容，也方便你管理分享</div>
     <input type="text" class="share-name-input" id="share-name-input" placeholder="例如：第三章英语词汇练习" maxlength="50" />
+    <div class="share-account-hint" id="share-account-hint"></div>
     <div style="display:flex; gap:8px; margin-top:16px;">
       <button class="btn btn-outline btn-flex" onclick="App.confirmShareName('link')">分享链接</button>
       <button class="btn btn-primary btn-flex" onclick="App.confirmShareName('qr')">分享二维码</button>
@@ -325,13 +348,33 @@
   </div>
 </div>
 
+<!-- v1.1.0: 账号菜单 -->
+<div id="account-modal" class="modal" style="display:none">
+  <div class="modal-mask" onclick="App.closeAccountModal()"></div>
+  <div class="modal-content">
+    <div class="account-summary">
+      <div class="account-avatar">拾</div>
+      <div>
+        <div class="modal-title account-title" id="account-name">未设置昵称</div>
+        <div class="modal-desc" id="account-phone"></div>
+      </div>
+    </div>
+    <div class="account-actions">
+      <button class="account-action" onclick="App.openHistoryFromAccount()">历史记录</button>
+      <button class="account-action" onclick="App.openNicknameFromAccount()">设置昵称</button>
+      <button class="account-action danger" onclick="App.doLogout()">退出登录</button>
+    </div>
+    <button class="modal-close" onclick="App.closeAccountModal()">取消</button>
+  </div>
+</div>
+
 <!-- v1.1.0: CloudBase SDK -->
 <script src="https://web-9gikj6ufa6efe07a-1259785600.tcloudbaseapp.com/cloudbase-js-sdk/1.7.2/cloudbase.full.js"></script>
 
 <!-- App Scripts -->
-<script src="js/store.js?v=20"></script>
-<script src="js/cloudbase.js?v=20"></script>
-<script src="js/api.js?v=20"></script>
-<script src="js/app.js?v=20"></script>
+<script src="js/store.js?v=110"></script>
+<script src="js/cloudbase.js?v=110"></script>
+<script src="js/api.js?v=110"></script>
+<script src="js/app.js?v=110"></script>
 </body>
 </html>

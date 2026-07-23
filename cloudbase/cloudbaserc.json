@@ -25,36 +25,56 @@
     {
       "name": "share-result",
       "timeout": 10
+    },
+    {
+      "name": "profile-manage",
+      "timeout": 10
     }
   ],
   "collections": [
     {
       "name": "users",
       "permissions": {
-        "read": "doc._openid == auth.openid",
-        "write": "doc._openid == auth.openid"
+        "read": false,
+        "write": false
       }
     },
     {
       "name": "quiz_history",
       "permissions": {
-        "read": "doc._openid == auth.openid",
-        "write": "doc._openid == auth.openid"
+        "read": false,
+        "write": false
+      }
+    },
+    {
+      "name": "quiz_attempts",
+      "permissions": {
+        "read": false,
+        "write": false
       }
     },
     {
       "name": "shares",
       "permissions": {
-        "read": true,
-        "write": "doc._openid == auth.openid"
+        "read": false,
+        "write": false
       }
     },
     {
       "name": "share_results",
       "permissions": {
-        "read": "doc.sharer_openid == auth.openid || doc._openid == auth.openid",
-        "write": true
+        "read": false,
+        "write": false
       }
     }
+  ],
+  "indexes": [
+    { "collection": "users", "fields": ["owner_id"] },
+    { "collection": "quiz_history", "fields": ["owner_id", "created_at"] },
+    { "collection": "quiz_attempts", "fields": ["owner_id", "history_id", "created_at"] },
+    { "collection": "quiz_attempts", "fields": ["owner_id", "attempt_id"] },
+    { "collection": "shares", "fields": ["owner_id", "created_at"] },
+    { "collection": "share_results", "fields": ["share_id", "sharer_id", "created_at"] },
+    { "collection": "share_results", "fields": ["share_id", "attempt_id"] }
   ]
 }

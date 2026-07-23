@@ -1,7 +1,7 @@
 {
-  "name": "share-manage",
+  "name": "profile-manage",
   "version": "1.1.0",
-  "description": "拾知猫 分享管理云函数",
+  "description": "拾知猫账号资料管理云函数",
   "main": "index.js",
   "dependencies": {
     "@cloudbase/node-sdk": "^2.5.0"

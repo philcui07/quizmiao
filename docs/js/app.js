@@ -43,6 +43,7 @@ const App = {
     if (current === 'confirm') this._cancelStream();
     this._history.push(page);
     this._showPage(page, true);
+    this._renderPage(page);
     this._updateNavBar();
     window.scrollTo(0, 0);
   },
@@ -182,6 +183,10 @@ const App = {
       this.toast('请输入验证码');
       return;
     }
+    if (!this._loginVerificationInfo) {
+      this.toast('请先获取验证码');
+      return;
+    }
 
     this.showLoading('登录中...');
     const result = await CB.loginWithSMSCode(phone, code, this._loginVerificationInfo);
@@ -195,12 +200,21 @@ const App = {
     Store.user = result.user;
     this.closeLoginModal();
     this._updateLoginUI();
+    if (Store.quizSource === 'self' && Store.questions?.length) {
+      this.pages.confirm._ensureHistoryRecord();
+    }
     this.toast('登录成功');
   },
 
   async doLogout() {
-    await CB.logout();
+    const result = await CB.logout();
+    if (!result.ok) {
+      this.toast(result.error || '退出失败');
+      return;
+    }
     Store.user = null;
+    Store.resetHistoryState();
+    this.closeAccountModal();
     this._updateLoginUI();
     this.toast('已退出登录');
   },
@@ -209,7 +223,8 @@ const App = {
     const userInfo = document.getElementById('user-info');
     const loginBtn = document.getElementById('login-btn');
     if (Store.user) {
-      const nickname = CB.getNickname() || Store.user.phone;
+      const phone = Store.user.phone ? Store.user.phone.replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2') : '已登录';
+      const nickname = CB.getNickname() || phone;
       if (userInfo) {
         userInfo.style.display = '';
         userInfo.textContent = nickname;
@@ -234,17 +249,53 @@ const App = {
     document.getElementById('nickname-modal').style.display = '';
   },
 
+  openAccountModal() {
+    if (!Store.user) {
+      this.openLoginModal();
+      return;
+    }
+    const phone = Store.user.phone ? Store.user.phone.replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2') : 'CloudBase 账号';
+    document.getElementById('account-name').textContent = CB.getNickname() || '未设置昵称';
+    document.getElementById('account-phone').textContent = phone;
+    document.getElementById('account-modal').style.display = '';
+  },
+
+  closeAccountModal() {
+    document.getElementById('account-modal').style.display = 'none';
+  },
+
+  openHistoryFromAccount() {
+    this.closeAccountModal();
+    this.navigateTo('history');
+  },
+
+  openNicknameFromAccount() {
+    this.closeAccountModal();
+    this.openNicknameModal();
+  },
+
   closeNicknameModal() {
     document.getElementById('nickname-modal').style.display = 'none';
   },
 
-  saveNickname() {
+  async saveNickname() {
     const name = document.getElementById('nickname-input').value.trim();
     if (!name) {
       this.toast('请输入昵称');
       return;
     }
-    CB.setNickname(name);
+    this.showLoading('正在保存昵称...');
+    let result;
+    try {
+      result = await CB.setNickname(name);
+    } catch (e) {
+      result = { ok: false, error: e.message };
+    }
+    this.hideLoading();
+    if (!result.ok) {
+      this.toast(result.error || '昵称保存失败');
+      return;
+    }
     this.closeNicknameModal();
     this._updateLoginUI();
     this.toast('昵称已保存');
@@ -255,6 +306,13 @@ const App = {
      ============================================== */
   openShareNameModal() {
     document.getElementById('share-name-input').value = '';
+    const hint = document.getElementById('share-account-hint');
+    if (hint) {
+      hint.textContent = Store.user
+        ? '好友完成后，答题记录会汇总到“我的分享”中'
+        : '当前未登录：链接仍可使用，但好友答题记录不会归入账号';
+      hint.classList.toggle('warning', !Store.user);
+    }
     document.getElementById('share-name-modal').style.display = '';
     setTimeout(() => document.getElementById('share-name-input').focus(), 100);
   },
@@ -342,7 +400,9 @@ const App = {
 
       const shortUrl = window.location.origin + window.location.pathname + '#s=' + data.id;
       await navigator.clipboard.writeText(shortUrl);
-      this.toast('链接已复制，可在任意聊天窗口粘贴分享（24小时内有效）');
+      this.toast(data.tracked
+        ? '链接已复制，24 小时内有效；好友成绩将记入账号'
+        : '链接已复制，24 小时内有效');
     } catch (e) {
       this.hideLoading();
       this.toast('分享失败：' + (e.message || '网络错误'));
@@ -519,6 +579,7 @@ const App = {
           }
 
           Store.questions = [];
+          Store.resetHistoryState();
           Store.resetShareState();
           Store.quizSource = 'self';
           App.navigateTo('confirm');
@@ -650,6 +711,7 @@ const App = {
         document.getElementById('btn-start-practice').disabled = questions.length === 0;
         this._updateTags(questions);
         this._generateShareUrl(questions);
+        this._ensureHistoryRecord();
 
         if (questions.length === 0) {
           this._showError('AI 未生成有效题目，请增加内容后重试');
@@ -676,6 +738,7 @@ const App = {
             document.getElementById('confirm-progress').style.display = 'none';
             document.getElementById('confirm-loading-sub').style.display = 'none';
             this.render();
+            this._ensureHistoryRecord();
 
             const btn = document.getElementById('btn-generate');
             btn.disabled = false;
@@ -780,22 +843,55 @@ const App = {
           return;
         }
         this.render();
+        this._syncHistoryQuestions();
+      },
+
+      _buildHistoryTitle() {
+        const categories = [...new Set((Store.questions || []).map(q => q.cat).filter(Boolean))].slice(0, 3);
+        return categories.length ? categories.join('、') : '未命名题集';
+      },
+
+      async _ensureHistoryRecord() {
+        if (!Store.user || Store.quizSource !== 'self' || !Store.questions?.length) return null;
+        if (Store.historyId) return Store.historyId;
+        if (Store.historyCreatePromise) return Store.historyCreatePromise;
+
+        const sessionId = Store.quizSessionId || Store.createId('quiz');
+        Store.quizSessionId = sessionId;
+        const questions = Store.questions.map((item) => ({ ...item, options: [...item.options] }));
+        const createPromise = CB.createQuizHistory({
+          questions,
+          title: this._buildHistoryTitle(),
+        }).then((result) => {
+          if (!result.ok) throw new Error(result.error || '题集保存失败');
+          if (Store.quizSessionId === sessionId) Store.historyId = result.id;
+          return result.id;
+        }).catch((e) => {
+          console.warn('题集保存失败:', e);
+          return null;
+        }).finally(() => {
+          if (Store.historyCreatePromise === createPromise) Store.historyCreatePromise = null;
+        });
+        Store.historyCreatePromise = createPromise;
+        return createPromise;
+      },
+
+      async _syncHistoryQuestions() {
+        const sessionId = Store.quizSessionId;
+        const questions = Store.questions.map((item) => ({ ...item, options: [...item.options] }));
+        const historyId = await this._ensureHistoryRecord();
+        if (!historyId || Store.quizSessionId !== sessionId) return;
+        try {
+          await CB.updateQuizHistory(historyId, questions);
+        } catch (e) {
+          console.warn('题集更新失败:', e);
+        }
       },
 
       startPractice() {
         if (this._streaming) return;
 
-        // v1.1.0: 出题确认后保存历史记录
-        if (Store.user && Store.quizSource === 'self') {
-          CB.saveHistory({
-            questions: Store.questions,
-            score: 0,
-            total: Store.questions.length,
-            wrongAnswers: [],
-            source: 'self',
-            title: '出题记录 · ' + new Date().toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
-          }).catch(e => console.warn('保存历史失败:', e));
-        }
+        this._ensureHistoryRecord();
 
         Store.preparePool();
         App.pages.practice.render();
@@ -931,28 +1027,48 @@ const App = {
 
       async _saveResult() {
         const g = Store;
+        if (g.attemptSaved) return;
+        if (!g.attemptId) g.attemptId = g.createId('attempt');
+        g.attemptSaved = true;
+        const snapshot = {
+          attemptId: g.attemptId,
+          score: g.score,
+          total: g.pool?.length || 0,
+          wrongAnswers: (g.wrong || []).map((item) => ({ ...item })),
+        };
 
-        // 1. 如果是自己出的题且已登录，保存到历史记录（更新成绩）
+        // 自建题集：在同一题集下追加一次练习，而不是创建重复题集。
         if (Store.user && Store.quizSource === 'self') {
-          CB.saveHistory({
-            questions: g.questions,
-            score: g.score,
-            total: g.pool.length,
-            wrongAnswers: g.wrong,
-            source: 'self',
-            title: '练习记录 · ' + new Date().toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
-          }).catch(e => console.warn('保存历史失败:', e));
+          const historyId = await App.pages.confirm._ensureHistoryRecord();
+          if (historyId) {
+            try {
+              await CB.addHistoryAttempt({
+                historyId,
+                attemptId: snapshot.attemptId,
+                score: snapshot.score,
+                total: snapshot.total,
+                wrongAnswers: snapshot.wrongAnswers,
+              });
+            } catch (e) {
+              console.warn('保存练习结果失败:', e);
+            }
+          }
         }
 
-        // 2. 如果是分享链接进来的，保存答题结果给分享人
+        // 分享题集：保存给分享人；答题者无需登录。
         if (Store.quizSource === 'shared' && Store.shareId) {
-          CB.saveShareResult({
-            shareId: Store.shareId,
-            nickname: Store.shareNickname || CB.getShareNickname() || '匿名用户',
-            score: g.score,
-            total: g.pool.length,
-            wrongAnswers: g.wrong,
-          }).catch(e => console.warn('保存分享结果失败:', e));
+          try {
+            await CB.saveShareResult({
+              shareId: Store.shareId,
+              attemptId: snapshot.attemptId,
+              nickname: Store.shareNickname || CB.getShareNickname() || '匿名用户',
+              score: snapshot.score,
+              total: snapshot.total,
+              wrongAnswers: snapshot.wrongAnswers,
+            });
+          } catch (e) {
+            console.warn('保存分享结果失败:', e);
+          }
         }
       },
 
@@ -965,129 +1081,198 @@ const App = {
 
     /* ---- v1.1.0: 历史记录页 (history) ---- */
     history: {
+      _activeTab: 'quizzes',
       _page: 1,
       _list: [],
       _hasMore: false,
+      _sharePage: 1,
+      _shares: [],
+      _sharesHasMore: false,
 
       async render() {
-        App.showLoading('加载历史记录...');
-
-        this._page = 1;
-        const result = await CB.listHistory(1);
-        App.hideLoading();
-
-        if (!result.ok) {
-          if (result.error === '请先登录') {
-            App.toast('请先登录');
-            App.openLoginModal();
-            return;
-          }
-          App.toast(result.error || '加载失败');
+        if (!Store.user) {
+          App.toast('请先登录');
+          App.openLoginModal();
           return;
         }
+        await this.switchTab(this._activeTab, true);
+      },
 
-        this._list = result.list;
-        this._hasMore = result.hasMore;
+      async switchTab(tab, force = false) {
+        if (!force && tab === this._activeTab) return;
+        this._activeTab = tab;
+        document.querySelectorAll('[data-history-tab]').forEach((item) => {
+          item.classList.toggle('active', item.dataset.historyTab === tab);
+        });
+        document.getElementById('history-quizzes-panel').style.display = tab === 'quizzes' ? '' : 'none';
+        document.getElementById('history-shares-panel').style.display = tab === 'shares' ? '' : 'none';
+        if (tab === 'quizzes') await this.loadQuizzes();
+        else await this.loadShares();
+      },
 
-        this._renderList();
+      async loadQuizzes() {
+        App.showLoading('加载题集记录...');
+        try {
+          const result = await CB.listHistory(1);
+          if (!result.ok) throw new Error(result.error || '加载失败');
+          this._page = 1;
+          this._list = result.list || [];
+          this._hasMore = result.hasMore;
+          this._renderList();
+        } catch (e) {
+          App.toast(e.message || '加载失败');
+        } finally {
+          App.hideLoading();
+        }
       },
 
       _renderList() {
         const container = document.getElementById('history-list');
 
         if (this._list.length === 0) {
-          container.innerHTML = '<div class="msg" style="text-align:center;padding:40px 0;color:var(--text3)">暂无练习记录</div>';
-          return;
+          container.innerHTML = '<div class="empty-state">还没有题集记录</div>';
+        } else {
+          container.innerHTML = this._list.map((item) => {
+            const dateStr = new Date(item.created_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            const last = item.last_attempt;
+            const lastSummary = last
+              ? `<span class="history-score">最近 ${last.score}/${last.total}</span><span class="history-wrong">错 ${last.wrong_count} 题</span>`
+              : '<span class="muted">尚未练习</span>';
+            return `
+              <button class="history-card" onclick="App.pages.history.viewDetail('${item.id}')">
+                <span class="history-card-header"><span class="history-title">${App._esc(item.title)}</span><span class="tag tag-self">题集</span></span>
+                <span class="history-stats"><span>${item.question_count} 道题</span><span>练习 ${item.practice_count} 次</span>${lastSummary}</span>
+                <span class="history-date">${dateStr}</span>
+              </button>`;
+          }).join('');
         }
-
-        container.innerHTML = this._list.map((h, i) => {
-          const date = new Date(h.created_at);
-          const dateStr = date.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-          const pct = h.total > 0 ? Math.round(h.score / h.total * 100) : 0;
-          const sourceTag = h.source === 'shared' ? '<span class="tag tag-shared">分享题</span>' : '<span class="tag tag-self">自出题</span>';
-
-          return `
-            <div class="history-card" onclick="App.pages.history.viewDetail('${h.id}')">
-              <div class="history-card-header">
-                <span class="history-title">${App._esc(h.title)}</span>
-                ${sourceTag}
-              </div>
-              <div class="history-stats">
-                <span>${h.question_count} 题</span>
-                <span class="history-score">${h.score}/${h.total}</span>
-                <span class="history-pct">${pct}%</span>
-                ${h.wrong_count > 0 ? `<span class="history-wrong">错${h.wrong_count}题</span>` : '<span class="history-perfect">全对</span>'}
-              </div>
-              <div class="history-date">${dateStr}</div>
-            </div>
-          `;
-        }).join('');
 
         const moreBtn = document.getElementById('history-load-more');
         if (moreBtn) moreBtn.style.display = this._hasMore ? '' : 'none';
       },
 
       async loadMore() {
-        this._page++;
-        const result = await CB.listHistory(this._page);
+        const result = await CB.listHistory(this._page + 1);
         if (result.ok) {
-          this._list = this._list.concat(result.list);
+          this._page++;
+          this._list = this._list.concat(result.list || []);
           this._hasMore = result.hasMore;
           this._renderList();
         }
       },
 
-      async viewDetail(id) {
-        App.showLoading('加载详情...');
-        const result = await CB.getHistoryDetail(id);
-        App.hideLoading();
-
-        if (!result.ok) {
-          App.toast(result.error || '加载失败');
-          return;
+      async loadShares() {
+        App.showLoading('加载分享记录...');
+        try {
+          const result = await CB.listMyShares(1);
+          if (!result.ok) throw new Error(result.error || '加载失败');
+          this._sharePage = 1;
+          this._shares = result.shares || [];
+          this._sharesHasMore = result.hasMore;
+          this._renderShareList();
+        } catch (e) {
+          App.toast(e.message || '加载失败');
+        } finally {
+          App.hideLoading();
         }
+      },
 
-        const h = result.history;
-        const date = new Date(h.created_at);
-        const dateStr = date.toLocaleString('zh-CN');
-
-        // 填充详情页
-        document.getElementById('history-detail-title').textContent = h.title;
-        document.getElementById('history-detail-date').textContent = dateStr;
-        document.getElementById('history-detail-score').textContent = `${h.score}/${h.total}`;
-        const pct = h.total > 0 ? Math.round(h.score / h.total * 100) : 0;
-        document.getElementById('history-detail-pct').textContent = `正确率 ${pct}%`;
-
-        // 错题集
-        const wrongSection = document.getElementById('history-detail-wrong');
-        if (h.wrong_answers && h.wrong_answers.length > 0) {
-          wrongSection.style.display = '';
-          document.getElementById('history-detail-wrong-count').textContent = h.wrong_answers.length;
-          document.getElementById('history-detail-wrong-list').innerHTML = h.wrong_answers.map((w, i) => `
-            <div class="wrong-item">
-              <div class="wq">${i + 1}. [${App._esc(w.cat)}] ${App._esc(w.q)}</div>
-              <div>你的答案：<span class="wa">${App._esc(w.picked)}</span></div>
-              <div>正确答案：<span class="wc">${App._esc(w.correct)}</span></div>
-              <div class="we">${App._esc(w.exp)}</div>
-            </div>
-          `).join('');
+      _renderShareList() {
+        const container = document.getElementById('share-history-list');
+        if (this._shares.length === 0) {
+          container.innerHTML = '<div class="empty-state">还没有账号内分享记录</div>';
         } else {
-          wrongSection.style.display = 'none';
+          container.innerHTML = this._shares.map((item) => {
+            const dateStr = new Date(item.created_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            return `
+              <button class="history-card" onclick="App.pages.history.viewShareResults('${item.id}')">
+                <span class="history-card-header"><span class="history-title">${App._esc(item.name)}</span><span class="tag ${item.expired ? 'tag-expired' : 'tag-shared'}">${item.expired ? '已过期' : '分享中'}</span></span>
+                <span class="history-stats"><span>${item.question_count} 道题</span><span>收到 ${item.result_count} 次答题</span></span>
+                <span class="history-date">${dateStr}</span>
+              </button>`;
+          }).join('');
         }
+        document.getElementById('shares-load-more').style.display = this._sharesHasMore ? '' : 'none';
+      },
 
-        // 题目列表
+      async loadMoreShares() {
+        const result = await CB.listMyShares(this._sharePage + 1);
+        if (!result.ok) return App.toast(result.error || '加载失败');
+        this._sharePage++;
+        this._shares = this._shares.concat(result.shares || []);
+        this._sharesHasMore = result.hasMore;
+        this._renderShareList();
+      },
+
+      async viewDetail(id) {
+        App.showLoading('加载题集详情...');
+        try {
+          const result = await CB.getHistoryDetail(id);
+          if (!result.ok) throw new Error(result.error || '加载失败');
+          const item = result.history;
+          document.getElementById('history-detail-title').textContent = item.title;
+          document.getElementById('history-detail-date').textContent = new Date(item.created_at).toLocaleString('zh-CN');
+          document.getElementById('history-detail-meta').textContent = `${item.questions.length} 道题 · 已练习 ${item.practice_count} 次`;
+          document.getElementById('history-attempt-list').innerHTML = this._renderAttempts(item.attempts || [], false);
+          document.getElementById('history-detail-questions').innerHTML = this._renderQuestions(item.questions || []);
+          App.navigateTo('history-detail');
+        } catch (e) {
+          App.toast(e.message || '加载失败');
+        } finally {
+          App.hideLoading();
+        }
+      },
+
+      async viewShareResults(id) {
+        App.showLoading('加载好友答题记录...');
+        try {
+          const result = await CB.listShareResults(id);
+          if (!result.ok) throw new Error(result.error || '加载失败');
+          document.getElementById('share-detail-title').textContent = result.share.name;
+          document.getElementById('share-detail-date').textContent = new Date(result.share.created_at).toLocaleString('zh-CN');
+          document.getElementById('share-detail-meta').textContent = `${result.share.questions.length} 道题 · 收到 ${result.results.length} 次答题`;
+          document.getElementById('share-result-list').innerHTML = this._renderAttempts(result.results || [], true);
+          document.getElementById('share-detail-questions').innerHTML = this._renderQuestions(result.share.questions || []);
+          App.navigateTo('share-detail');
+        } catch (e) {
+          App.toast(e.message || '加载失败');
+        } finally {
+          App.hideLoading();
+        }
+      },
+
+      _renderAttempts(attempts, showNickname) {
+        if (!attempts.length) return '<div class="empty-state compact">暂无练习记录</div>';
+        return attempts.map((attempt, index) => {
+          const pct = attempt.total ? Math.round(attempt.score / attempt.total * 100) : 0;
+          const wrong = attempt.wrong_answers || [];
+          const wrongHtml = wrong.length ? wrong.map((item, wrongIndex) => `
+            <div class="wrong-item">
+              <div class="wq">${wrongIndex + 1}. [${App._esc(item.cat)}] ${App._esc(item.q)}</div>
+              <div>作答：<span class="wa">${App._esc(item.picked)}</span></div>
+              <div>正确：<span class="wc">${App._esc(item.correct)}</span></div>
+              <div class="we">${App._esc(item.exp)}</div>
+            </div>`).join('') : '<div class="attempt-perfect">本次全部答对</div>';
+          const title = showNickname ? App._esc(attempt.nickname || '匿名用户') : `第 ${attempts.length - index} 次练习`;
+          return `
+            <details class="attempt-card" ${index === 0 ? 'open' : ''}>
+              <summary>
+                <span><strong>${title}</strong><small>${new Date(attempt.created_at).toLocaleString('zh-CN')}</small></span>
+                <span class="attempt-score">${attempt.score}/${attempt.total}<small>${pct}% · 错 ${wrong.length} 题</small></span>
+              </summary>
+              <div class="attempt-wrong-list">${wrongHtml}</div>
+            </details>`;
+        }).join('');
+      },
+
+      _renderQuestions(questions) {
         const letters = ['A', 'B', 'C', 'D'];
-        document.getElementById('history-detail-questions').innerHTML = h.questions.map((q, i) => `
+        return questions.map((q, index) => `
           <div class="qconf-card">
-            <div class="qconf-q">${i + 1}. [${App._esc(q.cat)}] ${App._esc(q.q)}</div>
-            <div class="qconf-opts">${q.options.map((o, oi) =>
-              `${App._esc(letters[oi])}. ${App._esc(o)}`
-            ).join(' &nbsp;')}</div>
-            <div class="qconf-ans">答案：${App._esc(letters[q.answer])}. ${App._esc(q.options[q.answer])}</div>
-          </div>
-        `).join('');
-
-        App.navigateTo('history-detail');
+            <div class="qconf-q">${index + 1}. [${App._esc(q.cat)}] ${App._esc(q.q)}</div>
+            <div class="qconf-opts">${q.options.map((option, optionIndex) => `${letters[optionIndex]}. ${App._esc(option)}`).join(' · ')}</div>
+            <div class="qconf-ans">答案：${letters[q.answer]}. ${App._esc(q.options[q.answer])}</div>
+          </div>`).join('');
       },
     },
   },
@@ -1127,11 +1312,11 @@ const App = {
         }
 
         // 设置分享状态
+        Store.resetHistoryState();
         Store.questions = data.questions;
         Store.quizSource = 'shared';
         Store.shareId = id;
         Store.shareName = data.name || '';
-        Store.sharerOpenid = data.sharer_openid || '';
 
         // v1.1.0: 被分享人昵称弹窗
         const existingNickname = CB.getShareNickname();
@@ -1165,6 +1350,8 @@ const App = {
         const questions = JSON.parse(json);
 
         if (Array.isArray(questions) && questions.length > 0) {
+          Store.resetHistoryState();
+          Store.resetShareState();
           Store.questions = questions;
           Store.quizSource = 'self'; // 旧版链接没有分享人
           App._shareData = encoded;
@@ -1199,14 +1386,15 @@ const App = {
 
 /* ---- 初始化 ---- */
 document.addEventListener('DOMContentLoaded', async () => {
-  // 初始化 CloudBase
-  CB.init();
-
-  // 检查登录状态
-  const loggedIn = await CB.isLoggedIn();
-  if (loggedIn) {
-    const user = await CB.getCurrentUser();
-    Store.user = user;
+  try {
+    CB.init();
+    const loggedIn = await CB.isLoggedIn();
+    if (loggedIn) {
+      Store.user = await CB.getCurrentUser();
+    }
+  } catch (e) {
+    console.error('[CloudBase] init failed:', e);
+    App.toast('服务连接失败，请稍后刷新重试', 3000);
   }
   App._updateLoginUI();
 
