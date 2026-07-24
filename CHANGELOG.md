@@ -2,6 +2,12 @@
 
 ## v1.1.0-dev - 2026-07-23
 
+### Fixed
+
+- 修复移动端 CloudBase SDK 临时地址返回 HTTP 418，改用腾讯官方 `static.cloudbase.net` CDN。
+- Web 与部署配置改为复用现有 CloudBase 环境 `cloud1-d1gmbknrs35a73b49`，移除不可用的占位环境 ID。
+- 将安全域名、环境未开通、云函数未部署和网络失败转换为可执行的连接错误提示。
+
 ### Added
 
 - CloudBase 匿名安全身份、设备账号资料和云端昵称。

@@ -284,6 +284,37 @@ test('SMS verification UI and browser calls are removed', () => {
   assert.doesNotMatch(cloudbaseSource, /getVerification|signInWithSms|sendSMSCode/);
 });
 
+test('CloudBase browser runtime uses the official SDK and configured environment', () => {
+  const html = fs.readFileSync(path.join(root, 'docs/index.html'), 'utf8');
+  const cloudbaseSource = fs.readFileSync(path.join(root, 'docs/js/cloudbase.js'), 'utf8');
+  const deploymentConfig = JSON.parse(fs.readFileSync(path.join(root, 'cloudbase/cloudbaserc.json'), 'utf8'));
+
+  assert.match(html, /https:\/\/static\.cloudbase\.net\/cloudbase-js-sdk\/1\.7\.2\/cloudbase\.full\.js/);
+  assert.doesNotMatch(html, /web-9gikj6ufa6efe07a-1259785600\.tcloudbaseapp\.com/);
+  assert.match(cloudbaseSource, /CLOUDBASE_ENV_ID = 'cloud1-d1gmbknrs35a73b49'/);
+  assert.equal(deploymentConfig.envId, 'cloud1-d1gmbknrs35a73b49');
+});
+
+test('CloudBase connection errors identify actionable deployment settings', () => {
+  const context = vm.createContext({ console, globalThis: null });
+  context.globalThis = context;
+  const cloudbaseSource = fs.readFileSync(path.join(root, 'docs/js/cloudbase.js'), 'utf8');
+  vm.runInContext(cloudbaseSource + '\n;globalThis.__cloudBaseErrorMessage = cloudBaseErrorMessage;', context);
+
+  assert.equal(
+    context.__cloudBaseErrorMessage({ message: 'anonymous login is not enabled' }),
+    'CloudBase 匿名登录尚未启用',
+  );
+  assert.equal(
+    context.__cloudBaseErrorMessage({ code: 'INVALID_DOMAIN', message: 'origin denied' }),
+    '当前网站域名尚未加入 CloudBase Web 安全域名',
+  );
+  assert.equal(
+    context.__cloudBaseErrorMessage({ message: 'cloud function profile-manage not found' }),
+    '后端云函数尚未部署',
+  );
+});
+
 test('provider adapter returns only provider token data', async () => {
   const context = vm.createContext({ console, globalThis: null });
   context.globalThis = context;

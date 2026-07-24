@@ -4,12 +4,40 @@
  * sends an openid/uid as an authorization credential.
  */
 
-const CLOUDBASE_ENV_ID = 'quizmiao'; // 部署时替换为真实环境 ID
+// Reuse the existing CloudBase environment already configured by the miniapp.
+// The environment id is public configuration, not a credential.
+const CLOUDBASE_ENV_ID = 'cloud1-d1gmbknrs35a73b49';
 
 let cloudApp = null;
 let cloudAuth = null;
 let currentUser = null;
 const ACCOUNT_ACTIVE_KEY = 'quizmiao_account_active';
+
+function cloudBaseErrorMessage(error, fallback = '服务连接失败，请稍后重试') {
+  const code = String(error?.code || error?.errorCode || '');
+  const message = String(error?.message || error?.errorMessage || '');
+  const detail = `${code} ${message}`.toLowerCase();
+
+  if (/anonymous|匿名/.test(detail) && /disabled|not enabled|not open|未开启|未启用/.test(detail)) {
+    return 'CloudBase 匿名登录尚未启用';
+  }
+  if (/domain|origin|referer|cors|illegal_domain|invalid_domain/.test(detail)) {
+    return '当前网站域名尚未加入 CloudBase Web 安全域名';
+  }
+  if (/env|environment/.test(detail) && /not found|not exist|invalid|illegal|不存在|无效/.test(detail)) {
+    return 'CloudBase 环境未开通或环境 ID 不正确';
+  }
+  if (/function/.test(detail) && /not found|not exist|不存在/.test(detail)) {
+    return '后端云函数尚未部署';
+  }
+  if (/network|fetch|timeout|timed out|connection|load failed|网络|超时/.test(detail)) {
+    return '无法连接 CloudBase，请检查网络后重试';
+  }
+  if (/permission|forbidden|unauthorized|access denied|无权限/.test(detail)) {
+    return 'CloudBase 身份认证未启用或当前来源无权限';
+  }
+  return message || fallback;
+}
 
 const CB = {
   init() {
@@ -76,7 +104,7 @@ const CB = {
       if (!state) throw new Error('设备身份创建失败');
       return state;
     } catch (e) {
-      throw new Error(e.message || '设备身份创建失败');
+      throw new Error(cloudBaseErrorMessage(e, '设备身份创建失败'));
     }
   },
 
@@ -178,7 +206,7 @@ const CB = {
       return result.result;
     } catch (e) {
       console.error(`[CloudBase] callFunction ${name} error:`, e);
-      throw e;
+      throw new Error(cloudBaseErrorMessage(e, '后端服务调用失败，请稍后重试'));
     }
   },
 
