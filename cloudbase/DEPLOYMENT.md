@@ -36,19 +36,19 @@
 
 1. 登录腾讯云控制台，进入云开发 CloudBase。
 2. 新建按量计费环境，区域选择主要用户所在区域；中国大陆用户优先上海或广州。
-3. 本项目 Web 默认复用 miniapp 1.0.1 已配置的环境 `cloud1-d1gmbknrs35a73b49`，无需为 Web 再创建第二个环境。若控制台内不存在该环境，再创建新环境并同时更新 `docs/js/cloudbase.js` 与 `cloudbase/cloudbaserc.json`。
+3. 本项目 Web 使用独立环境 `quizmiao-web-d7g9642jpcaa90745`（上海），不修改 miniapp 环境或资源。
 4. 环境 ID 是公开的路由配置，不是密钥；腾讯云 SecretId、SecretKey 和 API Key 不得写入前端或仓库。
-5. 在 Web 安全配置中加入正式域名和本地联调域名；正式域名预计为 philcui07.github.io。
+5. 免费体验版不支持添加自定义 Web 安全域名，因此正式前端部署到环境自动配置的 CloudBase 静态托管域名；升级套餐后再按需加入 `philcui07.github.io`。
 6. 在身份认证中启用匿名登录。匿名 CloudBase 身份是设备数据权限主键，不是公开访客 ID。
 7. 开启函数日志、监控和费用告警。
 
-GitHub Pages 只部署静态前端，不会自动部署 CloudBase 后端。首次联调前必须在腾讯云控制台完成本节设置以及第 6、7 节，否则手机号登录、历史记录和分享均不可用。
+静态托管只部署前端，不会自动部署 CloudBase 后端。首次联调前必须在腾讯云控制台完成本节设置以及第 6、7 节，否则手机号登录、历史记录和分享均不可用。
 
 ### 3.1 移动端“服务连接失败”排查
 
-1. `index.html` 必须从 `https://static.cloudbase.net/cloudbase-js-sdk/1.7.2/cloudbase.full.js` 加载 SDK；旧的临时静态托管地址会返回 HTTP 418，不能继续使用。
+1. `index.html` 必须从 `https://static.cloudbase.net/cloudbase-js-sdk/3.6.4/cloudbase.full.js` 加载官方 Web SDK；旧版 SDK 的匿名登录链路与当前身份认证控制台不兼容。
 2. 身份认证中启用匿名登录。
-3. Web 安全域名加入 `philcui07.github.io`。控制台若要求填写来源，使用 `https://philcui07.github.io`，不要填写带 `/quizmiao/` 的路径。
+3. 免费体验版使用自动安全域名 `quizmiao-web-d7g9642jpcaa90745-1257297085.tcloudbaseapp.com`；升级后如继续发布 GitHub Pages，再加入 `philcui07.github.io`，来源为 `https://philcui07.github.io`，不要填写带 `/quizmiao/` 的路径。
 4. 本地调试按控制台能力加入 `localhost` 和 `127.0.0.1`；生产环境不要开放通配域名。
 5. 部署第 7 节全部云函数，并确认函数区域与环境一致。
 6. 浏览器错误若提示域名、环境或函数未找到，按页面给出的分类处理，不要通过开放数据库客户端读写权限绕过。
@@ -57,7 +57,7 @@ GitHub Pages 只部署静态前端，不会自动部署 CloudBase 后端。首�
 
 ### 4.1 手动手机号回退
 
-1. 前端调用 CloudBase signInAnonymously 创建并持久化安全设备身份。
+1. 前端在每次调用云函数前使用 CloudBase Web SDK 3.6.4 的 `cloudApp.auth().signInAnonymously()` 创建并持久化安全设备身份。
 2. 用户手动填写手机号，profile-manage 将其保存到该设备身份的 users 资料。
 3. 资料标记 phone_verified=false。
 4. 历史、分享和昵称继续按 CloudBase 认证上下文中的身份读取。
@@ -141,11 +141,11 @@ GitHub Pages 只部署静态前端，不会自动部署 CloudBase 后端。首�
 
 ## 8. 前端发布
 
-1. 当前 Web 使用腾讯官方静态 CDN 上的 CloudBase SDK 1.7.2，并确认支持 signInAnonymously；升级 SDK 时必须重新执行移动端登录、历史和分享回归。
+1. 当前 Web 使用腾讯官方静态 CDN 上的 CloudBase SDK 3.6.4，通过 `signInAnonymously()` 登录匿名设备身份；升级 SDK 时必须重新执行移动端登录、历史和分享回归。
 2. 确认 index.html 中脚本顺序为 phone-auth-config、phone-auth、供应商 adapter、store、cloudbase、api、app。
 3. 修改 SDK、JS 或 CSS 后递增静态资源查询参数。
 4. 本地验证后提交 v1.1.0-dev；不要修改 miniapp。
-5. 合并到 main 后由现有 GitHub Pages workflow 发布 docs。
+5. 将 `docs/` 部署到 CloudBase 静态网站托管；GitHub Pages 可保留为不连接 CloudBase 的预览入口。
 
 ## 9. 上线前验收
 

@@ -4,9 +4,9 @@
  * sends an openid/uid as an authorization credential.
  */
 
-// Reuse the existing CloudBase environment already configured by the miniapp.
-// The environment id is public configuration, not a credential.
-const CLOUDBASE_ENV_ID = 'cloud1-d1gmbknrs35a73b49';
+// Web uses its own CloudBase environment. The environment id is public routing
+// configuration, not a credential.
+const CLOUDBASE_ENV_ID = 'quizmiao-web-d7g9642jpcaa90745';
 
 let cloudApp = null;
 let cloudAuth = null;
@@ -53,7 +53,7 @@ const CB = {
   async isLoggedIn() {
     try {
       this.init();
-      return this._isAccountActive() && (await cloudAuth.hasLoginState()) !== null;
+      return this._isAccountActive() && Boolean(await cloudAuth.getLoginState());
     } catch (e) {
       console.warn('[CloudBase] login state unavailable:', e.message);
       return false;
@@ -95,10 +95,19 @@ const CB = {
       this.init();
       let state = await cloudAuth.getLoginState();
       if (!state) {
-        if (typeof cloudAuth.signInAnonymously !== 'function') {
-          throw new Error('当前 CloudBase SDK 不支持匿名安全身份');
+        if (typeof cloudAuth.signInAnonymously === 'function') {
+          const result = await cloudAuth.signInAnonymously();
+          if (result?.error) throw result.error;
+        } else {
+          const anonymousProvider = typeof cloudAuth.anonymousAuthProvider === 'function'
+            ? cloudAuth.anonymousAuthProvider()
+            : null;
+          if (anonymousProvider && typeof anonymousProvider.signIn === 'function') {
+            await anonymousProvider.signIn();
+          } else {
+            throw new Error('当前 CloudBase SDK 不支持匿名安全身份');
+          }
         }
-        await cloudAuth.signInAnonymously();
         state = await cloudAuth.getLoginState();
       }
       if (!state) throw new Error('设备身份创建失败');
@@ -202,6 +211,9 @@ const CB = {
   async callFunction(name, data = {}) {
     this.init();
     try {
+      // Every CloudBase callable function requires a gateway-authenticated identity,
+      // including guest flows such as generating a quiz before profile onboarding.
+      await this.ensureDeviceIdentity();
       const result = await cloudApp.callFunction({ name, data });
       return result.result;
     } catch (e) {

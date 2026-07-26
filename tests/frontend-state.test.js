@@ -226,7 +226,10 @@ test('manual phone login creates an anonymous CloudBase identity and stores phon
   const auth = {
     async getLoginState() { return loginState; },
     async hasLoginState() { return loginState; },
-    async signInAnonymously() { loginState = { user: { uid: 'secure-device-id' } }; },
+    async signInAnonymously() {
+      loginState = { user: { uid: 'secure-device-id' } };
+      return { data: { user: loginState.user }, error: null };
+    },
   };
   const cloudbase = {
     init() {
@@ -275,6 +278,44 @@ test('manual phone login creates an anonymous CloudBase identity and stores phon
   assert.equal(values.get('quizmiao_account_active'), '1');
 });
 
+test('CloudBase function calls establish a guest identity before invoking the function', async () => {
+  let loginState = null;
+  let anonymousSignIns = 0;
+  const calls = [];
+  const auth = {
+    async getLoginState() { return loginState; },
+    async signInAnonymously() {
+      anonymousSignIns += 1;
+      loginState = { user: { uid: 'guest-device-id' } };
+      return { data: { user: loginState.user }, error: null };
+    },
+  };
+  const cloudbase = {
+    init() {
+      return {
+        auth() { return auth; },
+        async callFunction({ name, data }) {
+          calls.push({ name, data });
+          return { result: { ok: true, questions: [] } };
+        },
+      };
+    },
+  };
+  const context = vm.createContext({ cloudbase, console, globalThis: null });
+  context.globalThis = context;
+  const source = fs.readFileSync(path.join(root, 'docs/js/cloudbase.js'), 'utf8');
+  vm.runInContext(source + '\n;globalThis.__CB = CB;', context);
+
+  await context.__CB.generateQuestions('足够长度的游客知识内容', 5);
+
+  assert.equal(anonymousSignIns, 1);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].name, 'quiz-generate');
+  assert.equal(calls[0].data.action, 'generate');
+  assert.equal(calls[0].data.content, '足够长度的游客知识内容');
+  assert.equal(calls[0].data.count, 5);
+});
+
 test('SMS verification UI and browser calls are removed', () => {
   const html = fs.readFileSync(path.join(root, 'docs/index.html'), 'utf8');
   const appSource = fs.readFileSync(path.join(root, 'docs/js/app.js'), 'utf8');
@@ -289,10 +330,11 @@ test('CloudBase browser runtime uses the official SDK and configured environment
   const cloudbaseSource = fs.readFileSync(path.join(root, 'docs/js/cloudbase.js'), 'utf8');
   const deploymentConfig = JSON.parse(fs.readFileSync(path.join(root, 'cloudbase/cloudbaserc.json'), 'utf8'));
 
-  assert.match(html, /https:\/\/static\.cloudbase\.net\/cloudbase-js-sdk\/1\.7\.2\/cloudbase\.full\.js/);
+  assert.match(html, /https:\/\/static\.cloudbase\.net\/cloudbase-js-sdk\/3\.6\.4\/cloudbase\.full\.js/);
   assert.doesNotMatch(html, /web-9gikj6ufa6efe07a-1259785600\.tcloudbaseapp\.com/);
-  assert.match(cloudbaseSource, /CLOUDBASE_ENV_ID = 'cloud1-d1gmbknrs35a73b49'/);
-  assert.equal(deploymentConfig.envId, 'cloud1-d1gmbknrs35a73b49');
+  assert.match(cloudbaseSource, /CLOUDBASE_ENV_ID = 'quizmiao-web-d7g9642jpcaa90745'/);
+  assert.match(cloudbaseSource, /signInAnonymously\(\)/);
+  assert.equal(deploymentConfig.envId, 'quizmiao-web-d7g9642jpcaa90745');
 });
 
 test('CloudBase connection errors identify actionable deployment settings', () => {

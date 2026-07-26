@@ -4,7 +4,7 @@
 
 ## 目录
 
-- `docs/`：GitHub Pages 静态前端与产品文档。
+- `docs/`：CloudBase 静态托管前端与产品文档。
 - `cloudbase/`：CloudBase 配置、云函数和部署手册。
 - `tests/`：无需外部依赖的前端状态测试。
 - `proxy/`：冻结的 v1.0.1 Vercel 迁移参考，不属于 v1.1.0 运行链路。
