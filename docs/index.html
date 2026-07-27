@@ -321,20 +321,13 @@
     <div class="modal-title" id="login-title">登录拾知猫</div>
     <div class="modal-desc login-subtitle">继续查看你的题集和练习记录</div>
 
-    <button type="button" class="one-click-login" id="one-click-login-btn" onclick="App.startOneClickLogin()">
-      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2"></rect><path d="M10 18h4"></path></svg>
-      <span id="one-click-login-label">本机号码一键登录</span>
-    </button>
-    <div class="login-status" id="one-click-status"></div>
-
-    <button type="button" class="manual-login-toggle" id="manual-login-toggle" onclick="App.showManualLogin()">使用手机号继续</button>
-    <div class="manual-login-panel" id="manual-login-panel" style="display:none">
+    <div class="manual-login-panel" id="manual-login-panel">
       <div class="login-divider"><span>手机号登录</span></div>
       <label class="login-phone-field" for="login-phone">
         <span class="country-code">+86</span>
         <input type="tel" inputmode="numeric" autocomplete="tel-national" id="login-phone" placeholder="请输入手机号" maxlength="11" />
       </label>
-      <div class="login-status manual" id="manual-login-status">未验证手机号，仅绑定当前设备身份</div>
+      <div class="login-status manual" id="manual-login-status">手机号即为你的账号</div>
       <button type="button" class="btn btn-primary btn-block manual-login-submit" onclick="App.doManualLogin()">登录并继续</button>
     </div>
     <button type="button" class="modal-close login-cancel" onclick="App.closeLoginModal()">暂不登录</button>

@@ -39,6 +39,7 @@ async function generate(event) {
         messages: [{ role: "user", content: prompt }],
         temperature: 0.5,
         max_tokens: Math.min(8192, Math.max(2048, n * 300)),
+        response_format: { type: "json_object" },
         stream: false,
       }),
     });
@@ -48,17 +49,8 @@ async function generate(event) {
     }
 
     const data = await resp.json();
-    let text = data.choices?.[0]?.message?.content || "";
-    text = text.replace(/```json|```/g, "").trim();
-
-    const s = text.indexOf("["),
-      e = text.lastIndexOf("]");
-    if (s >= 0 && e > s) text = text.slice(s, e + 1);
-
-    let arr;
-    try {
-      arr = JSON.parse(text);
-    } catch (_) {
+    const arr = parseQuestions(data.choices?.[0]?.message?.content);
+    if (!arr) {
       return { ok: false, error: "JSON 解析失败" };
     }
 
@@ -191,14 +183,35 @@ function buildPrompt(content, n) {
 内容：
 ${content.slice(0, 8000)}
 
-输出JSON数组：[{"cat":"分类","q":"题干","options":["A","B","C","D"],"answer":0,"exp":"解析"}]
+输出严格 JSON 对象：{"questions":[{"cat":"分类","q":"题干","options":["A","B","C","D"],"answer":0,"exp":"解析"}]}
 
 要求：
 1.先答对再出题：每题答案必须100%正确，题干不含答案字眼
 2.选项长度相近，干扰项有迷惑性
 3.answer下标0-3均匀分布
 4.覆盖不同知识点
-5.只输出JSON`;
+5.只输出 JSON 对象，不要 Markdown、解释或代码块`;
+}
+
+function parseQuestions(content) {
+  const text = String(content || '').replace(/^```(?:json)?\s*|\s*```$/gi, '').trim();
+  const candidates = [text];
+  const firstObject = text.indexOf('{');
+  const lastObject = text.lastIndexOf('}');
+  const firstArray = text.indexOf('[');
+  const lastArray = text.lastIndexOf(']');
+  if (firstObject >= 0 && lastObject > firstObject) candidates.push(text.slice(firstObject, lastObject + 1));
+  if (firstArray >= 0 && lastArray > firstArray) candidates.push(text.slice(firstArray, lastArray + 1));
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed?.questions)) return parsed.questions;
+      if (Array.isArray(parsed?.data?.questions)) return parsed.data.questions;
+    } catch (_) {}
+  }
+  return null;
 }
 
 // ---- 验证器 ----

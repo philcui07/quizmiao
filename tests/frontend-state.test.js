@@ -184,7 +184,6 @@ test('logged-out history navigation opens login and keeps a return route', () =>
   assert.equal(App._pendingRoute, 'history');
   assert.equal(elements.get('login-modal').style.display, '');
   assert.equal(elements.get('manual-login-panel').style.display, '');
-  assert.equal(elements.get('one-click-login-btn').disabled, true);
 });
 
 test('manual device login returns to the guarded history page', async () => {
@@ -380,18 +379,9 @@ test('provider adapter returns only provider token data', async () => {
   assert.equal(Object.hasOwn(result, 'phone'), false);
 });
 
-test('carrier authorization failure reveals manual phone fallback', async () => {
-  const PhoneAuth = {
-    getStatus() { return { available: true, provider: 'mock' }; },
-    async authorize() { throw new Error('当前网络不支持一键认证'); },
-  };
-  const { App, elements } = loadApp({ CB: {}, PhoneAuth });
+test('login modal always exposes the simple phone account flow', () => {
+  const { App, elements } = loadApp({ CB: {} });
   App.openLoginModal();
-  assert.equal(elements.get('manual-login-panel').style.display, 'none');
-
-  await App.startOneClickLogin();
-
   assert.equal(elements.get('manual-login-panel').style.display, '');
-  assert.equal(elements.get('manual-login-status').textContent, '当前网络不支持一键认证');
-  assert.equal(elements.get('one-click-login-btn').disabled, false);
+  assert.equal(elements.get('login-modal').style.display, '');
 });

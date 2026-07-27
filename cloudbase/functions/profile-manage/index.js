@@ -2,8 +2,8 @@
 
 const cloud = require('@cloudbase/node-sdk');
 
-cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
-const db = cloud.database();
+const app = cloud.init({ env: cloud.SYMBOL_CURRENT_ENV });
+const db = app.database();
 
 exports.main = async (event, context) => {
   const authId = getAuthUserId(context);
@@ -35,33 +35,36 @@ async function updatePhone(event, authId) {
 
   const now = Date.now();
   const identity = await findProfile(authId);
-  const canonicalId = cleanText(identity?.canonical_owner_id, 128) || authId;
-  const canonical = canonicalId === authId ? identity : await findProfile(canonicalId);
+  const phoneOwner = await findProfileByPhone(phone);
+  const canonicalId = cleanText(phoneOwner?.canonical_owner_id, 128)
+    || cleanText(phoneOwner?.owner_id, 128)
+    || cleanText(identity?.canonical_owner_id, 128)
+    || authId;
 
-  // 已由运营商认证的号码不能被手动输入降级或覆盖。
-  if (canonical?.phone_verified) {
-    await markOnboarded(authId, identity, canonicalId, now);
-    return { ok: true, profile: publicProfile(canonical) };
+  // The phone number is the product account. A new anonymous credential for the
+  // same phone is linked to the original account owner so history follows it.
+  if (canonicalId !== authId) {
+    await upsertIdentity(authId, identity, canonicalId, phone, now);
+    const canonical = await findProfile(canonicalId);
+    return { ok: true, profile: publicProfile(canonical || phoneOwner) };
   }
 
   const data = {
-    owner_id: canonicalId,
-    canonical_owner_id: canonicalId,
+    owner_id: authId,
+    canonical_owner_id: authId,
     phone,
     phone_verified: false,
     onboarded: true,
     updated_at: now,
   };
-  if (canonical) {
-    await db.collection('users').doc(canonical._id).update({ data });
+  if (identity) {
+    await db.collection('users').doc(identity._id).update({ data });
   } else {
     data.nickname = '';
     data.created_at = now;
     await db.collection('users').add({ data });
   }
-
-  if (canonicalId !== authId) await markOnboarded(authId, identity, canonicalId, now);
-  return { ok: true, profile: publicProfile({ ...(canonical || {}), ...data }) };
+  return { ok: true, profile: publicProfile({ ...(identity || {}), ...data }) };
 }
 
 async function updateNickname(event, authId) {
@@ -91,8 +94,29 @@ async function markOnboarded(authId, identity, canonicalId, now) {
   }
 }
 
+async function upsertIdentity(authId, identity, canonicalId, phone, now) {
+  const data = {
+    owner_id: authId,
+    canonical_owner_id: canonicalId,
+    phone,
+    phone_verified: false,
+    onboarded: true,
+    updated_at: now,
+  };
+  if (identity) {
+    await db.collection('users').doc(identity._id).update({ data });
+  } else {
+    await db.collection('users').add({ data: { nickname: '', created_at: now, ...data } });
+  }
+}
+
 async function findProfile(ownerId) {
   const result = await db.collection('users').where({ owner_id: ownerId }).limit(1).get();
+  return result.data[0] || null;
+}
+
+async function findProfileByPhone(phone) {
+  const result = await db.collection('users').where({ phone }).limit(1).get();
   return result.data[0] || null;
 }
 

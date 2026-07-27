@@ -134,26 +134,13 @@ const App = {
     this._pendingRoute = returnTo;
     document.getElementById('login-modal').style.display = '';
     document.getElementById('login-phone').value = '';
-    const status = PhoneAuth.getStatus();
-    const oneClickButton = document.getElementById('one-click-login-btn');
-    oneClickButton.disabled = !status.available;
-    oneClickButton.classList.remove('is-loading');
-    document.getElementById('one-click-login-label').textContent = status.available ? '本机号码一键登录' : '一键登录暂不可用';
-    document.getElementById('one-click-status').textContent = status.available ? '由运营商安全认证本机号码' : status.reason;
-    document.getElementById('manual-login-toggle').style.display = status.available ? '' : 'none';
-    document.getElementById('manual-login-panel').style.display = status.available ? 'none' : '';
+    document.getElementById('manual-login-panel').style.display = '';
+    setTimeout(() => document.getElementById('login-phone').focus(), 50);
   },
 
   closeLoginModal() {
     document.getElementById('login-modal').style.display = 'none';
     this._pendingRoute = null;
-  },
-
-  showManualLogin(reason = '') {
-    document.getElementById('manual-login-toggle').style.display = 'none';
-    document.getElementById('manual-login-panel').style.display = '';
-    if (reason) document.getElementById('manual-login-status').textContent = reason;
-    setTimeout(() => document.getElementById('login-phone').focus(), 50);
   },
 
   async startOneClickLogin() {

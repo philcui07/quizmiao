@@ -89,6 +89,7 @@
   "indexes": [
     { "collection": "users", "fields": ["owner_id"] },
     { "collection": "users", "fields": ["canonical_owner_id"] },
+    { "collection": "users", "fields": ["phone"] },
     { "collection": "quiz_history", "fields": ["owner_id", "created_at"] },
     { "collection": "quiz_attempts", "fields": ["owner_id", "history_id", "created_at"] },
     { "collection": "quiz_attempts", "fields": ["owner_id", "attempt_id"] },

@@ -3,8 +3,8 @@
 const crypto = require('crypto');
 const cloud = require('@cloudbase/node-sdk');
 
-cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
-const db = cloud.database();
+const app = cloud.init({ env: cloud.SYMBOL_CURRENT_ENV });
+const db = app.database();
 const SHARE_TTL = 24 * 60 * 60 * 1000;
 
 exports.main = async (event, context) => {
