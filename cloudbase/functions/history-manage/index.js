@@ -1,28 +1,28 @@
-// 拾知猫 - 题集与练习历史管理云函数
+// 拾知猫 - 手机号账号题集与练习历史云函数
 
 const cloud = require('@cloudbase/node-sdk');
 
 const app = cloud.init({ env: cloud.SYMBOL_CURRENT_ENV });
 const db = app.database();
 
-exports.main = async (event, context) => {
-  const authId = getAuthUserId(context);
-  if (!authId) return { ok: false, error: '请先登录' };
+exports.main = async (event) => {
+  const accountId = requireAccountId(event);
+  if (!accountId) return { ok: false, error: '请先登录' };
 
   try {
-    const userId = await getAccountOwnerId(authId);
-    if (!userId) return { ok: false, error: '请先登录' };
     switch (event.action) {
       case 'create':
-        return await createQuiz(event, userId);
+        return await createQuiz(event, accountId);
       case 'updateQuestions':
-        return await updateQuestions(event, userId);
+        return await updateQuestions(event, accountId);
       case 'addAttempt':
-        return await addAttempt(event, userId);
+        return await addAttempt(event, accountId);
       case 'list':
-        return await listQuizzes(event, userId);
+        return await listQuizzes(event, accountId);
       case 'detail':
-        return await getDetail(event, userId);
+        return await getDetail(event, accountId);
+      case 'repairSummary':
+        return await repairSummary(event, accountId);
       default:
         return { ok: false, error: '未知 action: ' + event.action };
     }
@@ -32,57 +32,52 @@ exports.main = async (event, context) => {
   }
 };
 
-async function getAccountOwnerId(authId) {
-  const result = await db.collection('users').where({ owner_id: authId }).limit(1).get();
-  const profile = result.data[0];
-  if (!profile?.onboarded) return '';
-  return cleanText(profile.canonical_owner_id, 128) || authId;
-}
-
-async function createQuiz(event, userId) {
+async function createQuiz(event, accountId) {
   const questions = sanitizeQuestions(event.questions);
   if (questions.length === 0) return { ok: false, error: '缺少有效题目' };
 
   const now = Date.now();
   const result = await db.collection('quiz_history').add({
-    data: {
-      owner_id: userId,
-      title: cleanText(event.title, 80) || buildTitle(questions),
-      questions,
-      practice_count: 0,
-      last_attempt: null,
-      created_at: now,
-      updated_at: now,
-    },
+    owner_id: accountId,
+    title: cleanText(event.title, 80) || buildTitle(questions),
+    questions,
+    practice_count: 0,
+    last_attempt: null,
+    created_at: now,
+    updated_at: now,
   });
-  return { ok: true, id: result._id };
+  const id = insertedId(result);
+  if (!id) throw new Error('数据库未返回题集 ID');
+  return { ok: true, id };
 }
 
-async function updateQuestions(event, userId) {
-  const history = await getOwnedHistory(event.id, userId);
+async function updateQuestions(event, accountId) {
+  const history = await getOwnedHistory(event.id, accountId);
   if (!history.ok) return history;
 
   const questions = sanitizeQuestions(event.questions);
   if (questions.length === 0) return { ok: false, error: '题目不能为空' };
 
   await db.collection('quiz_history').doc(event.id).update({
-    data: { questions, updated_at: Date.now() },
+    questions,
+    updated_at: Date.now(),
   });
   return { ok: true };
 }
 
-async function addAttempt(event, userId) {
-  const history = await getOwnedHistory(event.historyId, userId);
+async function addAttempt(event, accountId) {
+  const history = await getOwnedHistory(event.historyId, accountId);
   if (!history.ok) return history;
 
   const attemptId = cleanText(event.attemptId, 100);
   if (!attemptId) return { ok: false, error: '缺少练习轮次 ID' };
 
   const existing = await db.collection('quiz_attempts').where({
-    owner_id: userId,
+    owner_id: accountId,
     attempt_id: attemptId,
   }).limit(1).get();
   if (existing.data.length > 0) {
+    await repairHistorySummary(event.historyId, accountId);
     return { ok: true, id: existing.data[0]._id, duplicate: true };
   }
 
@@ -90,41 +85,73 @@ async function addAttempt(event, userId) {
   const score = Math.max(0, Math.min(Number(event.score) || 0, total));
   const wrongAnswers = sanitizeWrongAnswers(event.wrongAnswers, total);
   const now = Date.now();
-
   const result = await db.collection('quiz_attempts').add({
-    data: {
-      owner_id: userId,
-      history_id: event.historyId,
-      attempt_id: attemptId,
-      score,
-      total,
-      wrong_answers: wrongAnswers,
-      created_at: now,
-    },
+    owner_id: accountId,
+    history_id: event.historyId,
+    attempt_id: attemptId,
+    score,
+    total,
+    wrong_answers: wrongAnswers,
+    created_at: now,
   });
+  const resultId = insertedId(result);
+  if (!resultId) throw new Error('数据库未返回练习记录 ID');
 
   await db.collection('quiz_history').doc(event.historyId).update({
-    data: {
-      practice_count: db.command.inc(1),
-      last_attempt: {
-        id: result._id,
-        score,
-        total,
-        wrong_count: wrongAnswers.length,
-        created_at: now,
-      },
-      updated_at: now,
-    },
+    practice_count: db.command.inc(1),
+    // Plain nested objects are flattened into dot paths by the SDK. Replace the
+    // whole field because existing quiz documents initialize it as null.
+    last_attempt: db.command.set({
+      id: resultId,
+      score,
+      total,
+      wrong_count: wrongAnswers.length,
+      created_at: now,
+    }),
+    updated_at: now,
   });
-
-  return { ok: true, id: result._id };
+  return { ok: true, id: resultId };
 }
 
-async function listQuizzes(event, userId) {
+async function repairSummary(event, accountId) {
+  const history = await getOwnedHistory(event.historyId, accountId);
+  if (!history.ok) return history;
+  const summary = await repairHistorySummary(event.historyId, accountId);
+  return { ok: true, ...summary };
+}
+
+async function repairHistorySummary(historyId, accountId) {
+  const query = db.collection('quiz_attempts').where({
+    owner_id: accountId,
+    history_id: historyId,
+  });
+  const [countResult, latestResult] = await Promise.all([
+    query.count(),
+    query.orderBy('created_at', 'desc').limit(1).get(),
+  ]);
+  const latest = latestResult.data[0] || null;
+  const practiceCount = Number(countResult.total) || 0;
+  const lastAttempt = latest ? {
+    id: latest._id,
+    score: latest.score,
+    total: latest.total,
+    wrong_count: latest.wrong_answers?.length || 0,
+    created_at: latest.created_at,
+  } : null;
+
+  await db.collection('quiz_history').doc(historyId).update({
+    practice_count: practiceCount,
+    last_attempt: db.command.set(lastAttempt),
+    updated_at: Date.now(),
+  });
+  return { practice_count: practiceCount, last_attempt: lastAttempt };
+}
+
+async function listQuizzes(event, accountId) {
   const page = Math.max(1, Number(event.page) || 1);
   const pageSize = Math.max(1, Math.min(Number(event.pageSize) || 20, 50));
   const result = await db.collection('quiz_history')
-    .where({ owner_id: userId })
+    .where({ owner_id: accountId })
     .orderBy('created_at', 'desc')
     .skip((page - 1) * pageSize)
     .limit(pageSize)
@@ -146,12 +173,12 @@ async function listQuizzes(event, userId) {
   };
 }
 
-async function getDetail(event, userId) {
-  const history = await getOwnedHistory(event.id, userId);
+async function getDetail(event, accountId) {
+  const history = await getOwnedHistory(event.id, accountId);
   if (!history.ok) return history;
 
   const attempts = await db.collection('quiz_attempts')
-    .where({ owner_id: userId, history_id: event.id })
+    .where({ owner_id: accountId, history_id: event.id })
     .orderBy('created_at', 'desc')
     .limit(100)
     .get();
@@ -177,30 +204,30 @@ async function getDetail(event, userId) {
   };
 }
 
-async function getOwnedHistory(id, userId) {
+async function getOwnedHistory(id, accountId) {
   if (!id) return { ok: false, error: '缺少题集 ID' };
   try {
-    const result = await db.collection('quiz_history').doc(id).get();
-    if (!result.data) return { ok: false, error: '记录不存在' };
-    if (result.data.owner_id !== userId) return { ok: false, error: '无权查看' };
-    return { ok: true, data: result.data };
+    const item = firstDocument(await db.collection('quiz_history').doc(id).get());
+    if (!item) return { ok: false, error: '记录不存在' };
+    if (item.owner_id !== accountId) return { ok: false, error: '无权查看' };
+    return { ok: true, data: item };
   } catch (_) {
     return { ok: false, error: '记录不存在' };
   }
 }
 
-function getAuthUserId(context) {
-  const cloudContext = typeof cloud.getCloudbaseContext === 'function'
-    ? cloud.getCloudbaseContext()
-    : {};
-  return cleanText(
-    context?.auth?.uid ||
-    context?.auth?.openid ||
-    cloudContext.TCB_UUID ||
-    cloudContext.WX_OPENID ||
-    cloudContext.OPENID,
-    128
-  );
+function firstDocument(result) {
+  const data = result?.data;
+  return Array.isArray(data) ? data[0] || null : data || null;
+}
+
+function requireAccountId(event) {
+  const phone = cleanText(event.accountPhone, 20);
+  return /^1\d{10}$/.test(phone) ? phone : '';
+}
+
+function insertedId(result) {
+  return cleanText(result?.id || result?._id, 128);
 }
 
 function buildTitle(questions) {

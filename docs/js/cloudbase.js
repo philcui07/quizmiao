@@ -1,17 +1,20 @@
 /**
  * 拾知猫 v1.1.0 - CloudBase browser client.
- * User identity is resolved again inside every cloud function. The browser never
- * sends an openid/uid as an authorization credential.
+ * The phone number is the product account id. CloudBase anonymous identity is
+ * used only to pass the callable-function gateway.
  */
 
-// Web uses its own CloudBase environment. The environment id is public routing
-// configuration, not a credential.
 const CLOUDBASE_ENV_ID = 'quizmiao-web-d7g9642jpcaa90745';
+const ACCOUNT_PHONE_KEY = 'quizmiao_account_phone';
 
 let cloudApp = null;
 let cloudAuth = null;
 let currentUser = null;
-const ACCOUNT_ACTIVE_KEY = 'quizmiao_account_active';
+
+function normalizeAccountPhone(value) {
+  const phone = String(value || '').trim();
+  return /^1\d{10}$/.test(phone) ? phone : '';
+}
 
 function cloudBaseErrorMessage(error, fallback = '服务连接失败，请稍后重试') {
   const code = String(error?.code || error?.errorCode || '');
@@ -51,46 +54,29 @@ const CB = {
   },
 
   async isLoggedIn() {
-    try {
-      this.init();
-      return this._isAccountActive() && Boolean(await cloudAuth.getLoginState());
-    } catch (e) {
-      console.warn('[CloudBase] login state unavailable:', e.message);
-      return false;
-    }
+    return Boolean(this._getAccountPhone());
   },
 
   async getCurrentUser({ refresh = false } = {}) {
     if (currentUser && !refresh) return currentUser;
+    const phone = this._getAccountPhone();
+    if (!phone) return null;
+
     try {
-      this.init();
-      if (!this._isAccountActive()) return null;
-      const state = await cloudAuth.getLoginState();
-      if (!state) {
+      const result = await this.getProfile();
+      if (!result?.ok || !result.profile) {
+        this._setAccountPhone('');
         currentUser = null;
         return null;
       }
-      const profileResult = await this.getProfile();
-      const profile = profileResult?.profile;
-      if (!profileResult?.ok || !profile?.onboarded) {
-        currentUser = null;
-        return null;
-      }
-      currentUser = {
-        uid: state.user?.uid || state.user?.openid || '',
-        phone: profile.phone || '',
-        phoneVerified: Boolean(profile.phoneVerified),
-        nickname: profile.nickname || '',
-        identityScope: profile.phoneVerified ? 'verified-phone' : 'device',
-      };
-      return currentUser;
-    } catch (e) {
+      return this._setCurrentUser(result.profile, phone);
+    } catch (_) {
       currentUser = null;
       return null;
     }
   },
 
-  async ensureDeviceIdentity() {
+  async ensureGatewayIdentity() {
     try {
       this.init();
       let state = await cloudAuth.getLoginState();
@@ -99,86 +85,84 @@ const CB = {
           const result = await cloudAuth.signInAnonymously();
           if (result?.error) throw result.error;
         } else {
-          const anonymousProvider = typeof cloudAuth.anonymousAuthProvider === 'function'
+          const provider = typeof cloudAuth.anonymousAuthProvider === 'function'
             ? cloudAuth.anonymousAuthProvider()
             : null;
-          if (anonymousProvider && typeof anonymousProvider.signIn === 'function') {
-            await anonymousProvider.signIn();
-          } else {
+          if (!provider || typeof provider.signIn !== 'function') {
             throw new Error('当前 CloudBase SDK 不支持匿名安全身份');
           }
+          await provider.signIn();
         }
         state = await cloudAuth.getLoginState();
       }
-      if (!state) throw new Error('设备身份创建失败');
+      if (!state) throw new Error('网关身份创建失败');
       return state;
     } catch (e) {
-      throw new Error(cloudBaseErrorMessage(e, '设备身份创建失败'));
+      throw new Error(cloudBaseErrorMessage(e, '网关身份创建失败'));
     }
   },
 
   async loginWithManualPhone(phoneNumber) {
+    const phone = normalizeAccountPhone(phoneNumber);
+    if (!phone) return { ok: false, error: '请输入正确的手机号' };
+
     try {
-      await this.ensureDeviceIdentity();
       const result = await this.callFunction('profile-manage', {
-        action: 'updatePhone',
-        phone: phoneNumber,
+        action: 'login',
+        phone,
       });
       if (!result?.ok) return result || { ok: false, error: '登录失败' };
-      this._setAccountActive(true);
-      currentUser = await this.getCurrentUser({ refresh: true });
-      if (!currentUser) {
-        this._setAccountActive(false);
-        return { ok: false, error: '账号资料读取失败，请重试' };
-      }
-      return { ok: true, user: currentUser };
+      this._setAccountPhone(phone);
+      currentUser = this._setCurrentUser(result.profile, phone);
+      return currentUser
+        ? { ok: true, user: currentUser }
+        : { ok: false, error: '账号资料读取失败，请重试' };
     } catch (e) {
       return { ok: false, error: e.message || '登录失败' };
     }
   },
 
-  async loginWithCarrier(authorization) {
-    try {
-      await this.ensureDeviceIdentity();
-      const result = await this.callFunction('phone-auth', {
-        action: 'verify',
-        provider: authorization?.provider,
-        token: authorization?.token,
-        metadata: authorization?.metadata || {},
-      });
-      if (!result?.ok) return result || { ok: false, error: '一键认证失败' };
-      this._setAccountActive(true);
-      currentUser = await this.getCurrentUser({ refresh: true });
-      if (!currentUser) {
-        this._setAccountActive(false);
-        return { ok: false, error: '认证成功但账号资料读取失败，请重试' };
-      }
-      return { ok: true, user: currentUser };
-    } catch (e) {
-      return { ok: false, error: e.message || '一键认证失败' };
-    }
+  async loginWithCarrier() {
+    return { ok: false, error: '当前未配置运营商一键认证' };
   },
 
   async logout() {
-    // 保留 CloudBase 匿名安全身份，确保用户在同一设备重新进入后仍能找回自己的数据。
-    this._setAccountActive(false);
+    this._setAccountPhone('');
     currentUser = null;
     return { ok: true };
   },
 
-  _isAccountActive() {
-    try {
-      return localStorage.getItem(ACCOUNT_ACTIVE_KEY) === '1';
-    } catch (_) {
-      return false;
-    }
+  _setCurrentUser(profile, fallbackPhone = '') {
+    const phone = normalizeAccountPhone(profile?.phone || fallbackPhone);
+    if (!phone) return null;
+    const user = {
+      uid: phone,
+      accountId: phone,
+      phone,
+      phoneVerified: false,
+      nickname: String(profile?.nickname || ''),
+      identityScope: 'phone',
+    };
+    this._setAccountPhone(phone);
+    currentUser = user;
+    return user;
   },
 
-  _setAccountActive(active) {
+  _setAccountPhone(phone) {
     try {
-      if (active) localStorage.setItem(ACCOUNT_ACTIVE_KEY, '1');
-      else localStorage.removeItem(ACCOUNT_ACTIVE_KEY);
+      const normalized = normalizeAccountPhone(phone);
+      if (normalized) localStorage.setItem(ACCOUNT_PHONE_KEY, normalized);
+      else localStorage.removeItem(ACCOUNT_PHONE_KEY);
     } catch (_) {}
+  },
+
+  _getAccountPhone() {
+    if (currentUser?.phone) return normalizeAccountPhone(currentUser.phone);
+    try {
+      return normalizeAccountPhone(localStorage.getItem(ACCOUNT_PHONE_KEY));
+    } catch (_) {
+      return '';
+    }
   },
 
   getNickname() {
@@ -190,7 +174,7 @@ const CB = {
       action: 'updateNickname',
       nickname: name,
     });
-    if (result.ok && currentUser) currentUser.nickname = result.profile.nickname;
+    if (result?.ok && currentUser) currentUser.nickname = result.profile.nickname;
     return result;
   },
 
@@ -211,10 +195,12 @@ const CB = {
   async callFunction(name, data = {}) {
     this.init();
     try {
-      // Every CloudBase callable function requires a gateway-authenticated identity,
-      // including guest flows such as generating a quiz before profile onboarding.
-      await this.ensureDeviceIdentity();
-      const result = await cloudApp.callFunction({ name, data });
+      await this.ensureGatewayIdentity();
+      const accountPhone = this._getAccountPhone();
+      const payload = accountPhone && !data.accountPhone
+        ? { ...data, accountPhone }
+        : data;
+      const result = await cloudApp.callFunction({ name, data: payload });
       return result.result;
     } catch (e) {
       console.error(`[CloudBase] callFunction ${name} error:`, e);
@@ -239,7 +225,7 @@ const CB = {
       action: 'save',
       questions,
       name,
-      trackAccount: this._isAccountActive(),
+      trackAccount: Boolean(this._getAccountPhone()),
     });
   },
 

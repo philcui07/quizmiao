@@ -135,6 +135,57 @@ test('result rendering saves a self attempt once', async () => {
   assert.equal(attemptCalls, 1);
 });
 
+test('failed attempt response is visible and remains retryable', async () => {
+  const CB = {
+    async addHistoryAttempt() {
+      return { ok: false, error: '数据库写入失败' };
+    },
+  };
+  const { App, Store, elements } = loadApp({ CB });
+  Store.user = { uid: 'user-1' };
+  Store.quizSource = 'self';
+  Store.historyId = 'history-1';
+  Store.questions = sampleQuestions();
+  Store.pool = sampleQuestions();
+  Store.score = 1;
+  Store.wrong = [];
+  Store.attemptId = 'attempt-failed';
+  Store.attemptSaved = false;
+
+  await App.pages.result._saveResult();
+
+  assert.equal(Store.attemptSaved, false);
+  assert.equal(elements.get('toast').textContent, '练习记录保存失败，请稍后重试');
+});
+
+test('option labels remove duplicated AI letter prefixes only', () => {
+  const { App } = loadApp({ CB: {} });
+  assert.equal(App._optionLabel('C. 唐古拉山脉，东海'), '唐古拉山脉，东海');
+  assert.equal(App._optionLabel('A股市场'), 'A股市场');
+});
+
+test('history waits for the active attempt save before listing quizzes', async () => {
+  const order = [];
+  let finishSave;
+  const pendingSave = new Promise((resolve) => { finishSave = resolve; });
+  const CB = {
+    async listHistory() {
+      order.push('list');
+      return { ok: true, list: [], hasMore: false };
+    },
+  };
+  const { App, Store } = loadApp({ CB });
+  Store.user = { uid: 'user-1' };
+  Store.attemptSavePromise = pendingSave.then(() => { order.push('saved'); });
+
+  const loading = App.pages.history.loadQuizzes();
+  await Promise.resolve();
+  assert.deepEqual(order, []);
+  finishSave();
+  await loading;
+  assert.deepEqual(order, ['saved', 'list']);
+});
+
 test('shared result keeps the participant nickname and attempt id', async () => {
   let savedPayload;
   const CB = {
@@ -156,6 +207,17 @@ test('shared result keeps the participant nickname and attempt id', async () => 
   assert.equal(savedPayload.shareId, 'share-1');
   assert.equal(savedPayload.attemptId, 'attempt-shared');
   assert.equal(savedPayload.nickname, '本机昵称');
+});
+
+test('nickname confirmation enters the loaded shared quiz', () => {
+  const { App, Store } = loadApp({ CB: {} });
+  let showCalls = 0;
+  App._showSharedQuizPage = () => { showCalls++; };
+
+  App._proceedWithSharedQuiz('好友验收');
+
+  assert.equal(Store.shareNickname, '好友验收');
+  assert.equal(showCalls, 1);
 });
 
 test('attempt renderer escapes nickname and exposes score details', () => {
@@ -218,7 +280,7 @@ test('history entry stays visible before login', () => {
   assert.equal(elements.get('history-entry').style.display, '');
 });
 
-test('manual phone login creates an anonymous CloudBase identity and stores phone as profile only', async () => {
+test('manual phone login uses anonymous identity only for the gateway and persists the phone account', async () => {
   const values = new Map();
   const calls = [];
   let loginState = null;
@@ -236,8 +298,13 @@ test('manual phone login creates an anonymous CloudBase identity and stores phon
         auth() { return auth; },
         async callFunction({ name, data }) {
           calls.push({ name, data });
-          if (name === 'profile-manage' && data.action === 'updatePhone') {
-            return { result: { ok: true } };
+          if (name === 'profile-manage' && data.action === 'login') {
+            return {
+              result: {
+                ok: true,
+                profile: { onboarded: true, phone: '13800138000', phoneVerified: false, nickname: '' },
+              },
+            };
           }
           if (name === 'profile-manage' && data.action === 'get') {
             return {
@@ -246,6 +313,9 @@ test('manual phone login creates an anonymous CloudBase identity and stores phon
                 profile: { onboarded: true, phone: '13800138000', phoneVerified: false, nickname: '' },
               },
             };
+          }
+          if (name === 'history-manage' && data.action === 'list') {
+            return { result: { ok: true, list: [], hasMore: false } };
           }
           throw new Error('unexpected cloud function');
         },
@@ -269,12 +339,88 @@ test('manual phone login creates an anonymous CloudBase identity and stores phon
   const result = await context.__CB.loginWithManualPhone('13800138000');
 
   assert.equal(result.ok, true);
-  assert.equal(result.user.uid, 'secure-device-id');
+  assert.equal(result.user.uid, '13800138000');
+  assert.equal(result.user.accountId, '13800138000');
   assert.equal(result.user.phoneVerified, false);
   assert.equal(calls[0].name, 'profile-manage');
-  assert.equal(calls[0].data.action, 'updatePhone');
+  assert.equal(calls[0].data.action, 'login');
   assert.equal(calls[0].data.phone, '13800138000');
-  assert.equal(values.get('quizmiao_account_active'), '1');
+  await context.__CB.listHistory();
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].data.accountPhone, '13800138000');
+  assert.equal(values.has('quizmiao_account_active'), false);
+  assert.equal(values.get('quizmiao_account_phone'), '13800138000');
+  assert.equal(await context.__CB.isLoggedIn(), true);
+
+  await context.__CB.getProfile();
+  assert.equal(calls.length, 3);
+  assert.equal(calls[2].data.accountPhone, '13800138000');
+});
+
+test('persisted phone remains the account key when in-memory user state is unavailable', async () => {
+  const values = new Map([
+    ['quizmiao_account_phone', '18600002610'],
+  ]);
+  const calls = [];
+  const auth = {
+    async getLoginState() { return { user: { uid: 'new-anonymous-id' } }; },
+  };
+  const cloudbase = {
+    init() {
+      return {
+        auth() { return auth; },
+        async callFunction({ name, data }) {
+          calls.push({ name, data });
+          return { result: { ok: true, list: [], hasMore: false } };
+        },
+      };
+    },
+  };
+  const context = vm.createContext({
+    cloudbase,
+    console,
+    globalThis: null,
+    localStorage: {
+      getItem(key) { return values.get(key) || null; },
+      setItem(key, value) { values.set(key, value); },
+      removeItem(key) { values.delete(key); },
+    },
+  });
+  context.globalThis = context;
+  const source = fs.readFileSync(path.join(root, 'docs/js/cloudbase.js'), 'utf8');
+  vm.runInContext(source + '\n;globalThis.__CB = CB;', context);
+
+  await context.__CB.listHistory();
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].name, 'history-manage');
+  assert.equal(calls[0].data.accountPhone, '18600002610');
+});
+
+test('legacy account-active flag without a phone is not a product login', async () => {
+  const auth = {
+    async getLoginState() { return { user: { uid: 'anonymous-id' } }; },
+  };
+  const cloudbase = {
+    init() {
+      return { auth() { return auth; } };
+    },
+  };
+  const context = vm.createContext({
+    cloudbase,
+    console,
+    globalThis: null,
+    localStorage: {
+      getItem(key) { return key === 'quizmiao_account_active' ? '1' : null; },
+      setItem() {},
+      removeItem() {},
+    },
+  });
+  context.globalThis = context;
+  const source = fs.readFileSync(path.join(root, 'docs/js/cloudbase.js'), 'utf8');
+  vm.runInContext(source + '\n;globalThis.__CB = CB;', context);
+
+  assert.equal(await context.__CB.isLoggedIn(), false);
 });
 
 test('CloudBase function calls establish a guest identity before invoking the function', async () => {

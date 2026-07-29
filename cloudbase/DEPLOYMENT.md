@@ -2,7 +2,7 @@
 
 本手册对应 Web v1.1.0-dev。业务后端全部运行在腾讯云 CloudBase，Vercel 和短信验证码均不属于 v1.1.0 运行链路。
 
-## 1. Web 手机号能力边界
+## 1. Web 手机号账号边界
 
 普通 Chrome、Safari、Edge、Firefox 和微信内置浏览器没有标准 API 可以直接读取 SIM 手机号。
 
@@ -10,27 +10,28 @@
 - WebOTP API 只读取应用发送的短信一次性验证码，仍需要短信发送和服务端验证码校验，不能返回本机手机号：<https://developer.mozilla.org/en-US/docs/Web/API/WebOTP_API>
 - Web 一键认证必须采购运营商或聚合认证产品。供应商前端 SDK 获取短期 token，CloudBase 服务端再用密钥校验 token 并换取手机号。
 
-当前仓库已经提供 provider adapter 和服务端校验边界，但默认保持 disabled。在供应商项目、域名和正式密钥配置完成前，界面会明确显示一键登录不可用并进入手动手机号回退。
+v1.1.0 采用最小可用账号方案：用户输入以 `1` 开头的 11 位手机号，手机号本身就是账号 ID。不发送短信、不校验号码归属、不绑定设备，也不接入运营商认证。知道某个手机号的人可以进入该账号，因此当前版本只适合产品验证，不适合保存敏感资料。
+
+`phone-auth` 云函数保留为禁用占位，`PHONE_AUTH_PROVIDER` 必须保持 `disabled`。后续若接入短信或运营商认证，应作为独立版本重新设计认证和账号迁移，不能直接启用占位配置。
 
 ## 2. 权限分工
 
 必须由账号所有者完成：
 
-- 腾讯云和运营商认证供应商的实名认证；
-- 认证产品开通、套餐购买、充值、续费和费用审批；
-- 正式域名的备案、域名所有权验证及供应商白名单审核；
+- 腾讯云实名认证；
+- CloudBase 套餐购买、充值、续费和费用审批；
+- 正式域名的备案和域名所有权验证；
 - 首次登录、扫码、MFA、协议确认或高风险操作确认；
-- 生成正式应用 ID、服务端密钥，并在控制台内填写密钥值。
+- 创建或填写 DeepSeek 等服务端密钥。
 
 可以由 Codex 在你已登录的控制台会话中协助：
 
 - 创建和配置 CloudBase 环境、集合、索引和安全规则；
 - 上传、部署和更新云函数；
 - 配置环境变量名称、函数超时、Web 安全域名和日志查询；
-- 根据最终供应商 SDK 实现具体前端 adapter 与服务端校验网关；
 - 执行联调、部署检查和故障排查。
 
-不要把供应商密钥、PHONE_HASH_SECRET、DeepSeek Key、OTP 或账号密码粘贴到聊天或提交到 Git。
+不要把 DeepSeek Key、腾讯云凭据、token、OTP 或账号密码粘贴到聊天或提交到 Git。
 
 ## 3. 创建 CloudBase 环境
 
@@ -39,7 +40,7 @@
 3. 本项目 Web 使用独立环境 `quizmiao-web-d7g9642jpcaa90745`（上海），不修改 miniapp 环境或资源。
 4. 环境 ID 是公开的路由配置，不是密钥；腾讯云 SecretId、SecretKey 和 API Key 不得写入前端或仓库。
 5. 免费体验版不支持添加自定义 Web 安全域名，因此正式前端部署到环境自动配置的 CloudBase 静态托管域名；升级套餐后再按需加入 `philcui07.github.io`。
-6. 在身份认证中启用匿名登录。匿名 CloudBase 身份是设备数据权限主键，不是公开访客 ID。
+6. 在身份认证中启用匿名登录。匿名 CloudBase 身份只用于通过云函数调用网关，不是业务账号，也不决定数据归属。
 7. 开启函数日志、监控和费用告警。
 
 静态托管只部署前端，不会自动部署 CloudBase 后端。首次联调前必须在腾讯云控制台完成本节设置以及第 6、7 节，否则手机号登录、历史记录和分享均不可用。
@@ -55,55 +56,30 @@
 
 ## 4. 登录身份模型
 
-### 4.1 手动手机号回退
+1. 前端验证手机号满足 `^1\d{10}$`。
+2. 前端先用 CloudBase Web SDK 3.6.4 的 `signInAnonymously()` 建立云函数网关凭据。
+3. `profile-manage` 以手机号创建或读取 `users/phone_<手机号>` 文档。
+4. 前端把手机号保存在当前浏览器的 `localStorage`，后续云函数调用通过 `accountPhone` 传递账号。
+5. `profile-manage`、`history-manage`、`share-manage` 和 `share-result` 都在服务端重新校验手机号格式。
+6. 昵称保存在 `users`；题集、练习、分享和好友答题分别以手机号写入 `owner_id`、`sharer_id` 或 `participant_id`。
+7. 换设备输入同一个手机号可以恢复昵称、历史和分享记录。
 
-1. 前端在每次调用云函数前使用 CloudBase Web SDK 3.6.4 的 `cloudApp.auth().signInAnonymously()` 创建并持久化安全设备身份。
-2. 用户手动填写手机号，profile-manage 将其保存到该设备身份的 users 资料。
-3. 资料标记 phone_verified=false。
-4. 历史、分享和昵称继续按 CloudBase 认证上下文中的身份读取。
-5. 服务端不按手机号查询 owner，不接受客户端传入 owner ID。
+这套设计刻意不做设备绑定、短信验证、号码别名或 canonical owner。匿名 CloudBase 身份变化不会改变业务账号。当前安全边界是“持有手机号字符串即可登录”，不要在账号中保存敏感数据。
 
-因此，在另一台设备输入相同手机号不会读取原设备历史。这是预期的安全行为，不能改成“按手机号查账号”。
+## 5. `phone-auth` 禁用要求
 
-### 4.2 运营商一键认证
-
-1. 供应商 SDK adapter 在浏览器中取得一次性 token，不取得可直接信任的手机号。
-2. 前端把 provider、token 和受限 metadata 传给 phone-auth 云函数。
-3. phone-auth 从环境变量读取服务端配置，调用 HTTPS 校验网关。
-4. 只有网关明确返回 ok=true 且号码格式有效时，才写入 phone_verified=true。
-5. 号码经 PHONE_HASH_SECRET 做 HMAC 后写入 phone_bindings，明文号码不作为绑定文档 ID。
-6. 同一认证号码从新设备登录时解析到 canonical owner，并迁移该设备已有题集、练习和分享归属。
-
-## 5. 运营商项目手工配置
-
-选定供应商后，需要在其控制台完成：
-
-1. 开通支持 Web/H5 的本机号码认证产品，确认其明确支持普通浏览器或指定 WebView。
-2. 创建 Web/H5 应用，登记正式域名、回调域名和业务场景。
-3. 配置移动、联通、电信支持范围，确认 Wi-Fi、双卡、境外号码和虚拟运营商的失败策略。
-4. 获取前端公开 App ID；密钥只能进入服务端。
-5. 按供应商 SDK 实现一个 adapter，并调用 PhoneAuth.registerAdapter(providerName, adapter)。adapter authorize 必须只返回短期 token 和必要 metadata。
-6. 建立服务端 token 校验网关。当前 phone-auth 采用 custom REST v1 契约：POST JSON 输入 provider、appId、token、metadata；成功响应必须为 {"ok":true,"phone":"13800138000"}。
-7. 把 docs/js/phone-auth-config.js 中 enabled 改为 true，provider 与注册名称一致，填写公开 appId。
-8. 在 CloudBase phone-auth 云函数配置下列环境变量。
-
-| 环境变量 | 必填 | 说明 |
-|---|---|---|
-| PHONE_AUTH_PROVIDER | 是 | provider 名称；未接入前必须为 disabled |
-| PHONE_AUTH_VERIFY_URL | 是 | HTTPS 服务端 token 校验网关 |
-| PHONE_AUTH_APP_ID | 是 | 供应商应用 ID |
-| PHONE_AUTH_VERIFY_SECRET | 视网关而定 | phone-auth 调用网关的 Bearer 密钥 |
-| PHONE_HASH_SECRET | 是 | 至少 32 字符的独立随机密钥，不得复用其他 Key |
-
-9. 真机分别测试移动数据、Wi-Fi、三家运营商、拒绝授权、token 过期、网关超时和手动回退。
-10. 配置调用频率限制、异常峰值告警、日/月预算和紧急停用开关。
+1. `phone-auth` 保持部署，便于前端旧调用得到明确的“未启用”结果。
+2. `PHONE_AUTH_PROVIDER` 必须为 `disabled`。
+3. `PHONE_AUTH_VERIFY_URL`、`PHONE_AUTH_APP_ID`、`PHONE_AUTH_VERIFY_SECRET` 和 `PHONE_HASH_SECRET` 保持为空。
+4. 不启用前端运营商 adapter，不购买或调用短信/运营商认证服务。
+5. 后续认证升级需另行设计服务端校验、账号迁移和旧手机号账号保护。
 
 ## 6. 创建数据库集合
 
 依次创建：
 
 - users
-- phone_bindings
+- phone_bindings（保留集合，v1.1.0 不读写）
 - quiz_history
 - quiz_attempts
 - shares
@@ -113,9 +89,6 @@
 
 | 集合 | 索引字段 |
 |---|---|
-| users | owner_id |
-| users | canonical_owner_id |
-| phone_bindings | canonical_owner_id |
 | quiz_history | owner_id, created_at |
 | quiz_attempts | owner_id, history_id, created_at |
 | quiz_attempts | owner_id, attempt_id |
@@ -131,17 +104,17 @@
 |---|---:|---|
 | quiz-generate | 60 秒 | DeepSeek 出题 |
 | page-fetch | 15 秒 | 安全抓取公开网页 |
-| profile-manage | 10 秒 | 设备账号资料 |
-| phone-auth | 10 秒 | 运营商 token 服务端校验 |
+| profile-manage | 10 秒 | 手机号账号资料 |
+| phone-auth | 10 秒 | 禁用占位，不接认证供应商 |
 | history-manage | 10 秒 | 题集和练习记录 |
 | share-manage | 10 秒 | 分享管理 |
 | share-result | 10 秒 | 好友答题记录 |
 
-每个函数选择云端安装依赖。为 quiz-generate 配置 DEEPSEEK_API_KEY 和 DEEPSEEK_MODEL；为 phone-auth 按第 5 节配置认证变量。日志不得输出手机号、token、供应商密钥、PHONE_HASH_SECRET、API Key 或完整认证上下文。
+每个函数选择云端安装依赖。为 quiz-generate 配置 DEEPSEEK_API_KEY 和 DEEPSEEK_MODEL；phone-auth 按第 5 节保持禁用。日志不得输出手机号、token、API Key 或完整认证上下文。
 
 ## 8. 前端发布
 
-1. 当前 Web 使用腾讯官方静态 CDN 上的 CloudBase SDK 3.6.4，通过 `signInAnonymously()` 登录匿名设备身份；升级 SDK 时必须重新执行移动端登录、历史和分享回归。
+1. 当前 Web 使用腾讯官方静态 CDN 上的 CloudBase SDK 3.6.4，通过 `signInAnonymously()` 获取云函数网关凭据；升级 SDK 时必须重新执行移动端登录、历史和分享回归。
 2. 确认 index.html 中脚本顺序为 phone-auth-config、phone-auth、供应商 adapter、store、cloudbase、api、app。
 3. 修改 SDK、JS 或 CSS 后递增静态资源查询参数。
 4. 本地验证后提交 v1.1.0-dev；不要修改 miniapp。
@@ -151,13 +124,11 @@
 
 账号与守卫：
 
-- provider 未配置时不发送任何短信，也不调用云端短信占位接口；
-- 一键认证不可用或失败时显示手动手机号输入；
-- 手动手机号资料标记为未验证，换设备输入同号不能读取历史；
+- 登录只接受以 `1` 开头的 11 位手机号，不发送短信；
+- 换设备输入同一手机号能读取相同昵称、历史和分享；
 - 未登录点击历史入口先打开登录，成功后自动进入历史页；
-- 伪造手机号、verified 标志或 owner ID 不能越权；
-- 同一运营商认证号码在新设备映射到 canonical owner；
-- 退出后 UI 要求重新登录，但保留安全设备凭据，确保本机重新登录仍能找回历史。
+- 退出后 UI 要求重新输入手机号，业务数据保留在该手机号账号下；
+- phone-auth 保持 disabled，不启用占位配置。
 
 题集与分享：
 
@@ -169,9 +140,9 @@
 运维：
 
 - 网页抓取拒绝 localhost、内网 IP 和非标准端口；
-- provider token、手机号和密钥不进入日志；
-- AI、运营商认证和 CloudBase 设置预算告警与紧急停用策略。
+- 手机号、token 和密钥不进入日志；
+- AI 和 CloudBase 设置预算告警与紧急停用策略。
 
 ## 10. Miniapp 后续工作
 
-Web 验收后再进入 Miniapp v1.1.0-dev。本次改动不修改 miniapp。小程序后续使用微信手机号快速验证动态凭证，由专用 CloudBase 云函数换取手机号并接入相同 canonical owner 体系。
+Web 验收后再单独设计 Miniapp。本次改动不修改 miniapp，也不假定小程序复用当前未验证手机号登录方案。

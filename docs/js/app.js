@@ -2,7 +2,7 @@
  * 拾知猫 v1.1.0 — Web 版主应用
  *
  * v1.1.0 新增功能：
- * 1. CloudBase 设备身份 + 运营商一键认证（手动手机号回退）
+ * 1. 手机号账号登录（CloudBase 匿名身份仅用于调用云函数）
  * 2. 历史出题记录 + 练习成绩 + 错题集
  * 3. 分享命名 + 24h时效 + 被分享人昵称弹窗
  * 4. 分享链接答题记录同步给分享人
@@ -201,7 +201,7 @@ const App = {
     if (Store.quizSource === 'self' && Store.questions?.length) {
       this.pages.confirm._ensureHistoryRecord();
     }
-    this.toast(verified ? '本机号码认证成功' : '已在当前设备登录');
+    this.toast(verified ? '手机号认证成功' : '手机号登录成功');
     if (returnTo) this.navigateTo(returnTo);
   },
 
@@ -257,7 +257,7 @@ const App = {
     }
     const phone = Store.user.phone ? Store.user.phone.replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2') : '本机账号';
     document.getElementById('account-name').textContent = CB.getNickname() || '未设置昵称';
-    document.getElementById('account-phone').textContent = phone + (Store.user.phoneVerified ? ' · 已认证' : ' · 当前设备');
+    document.getElementById('account-phone').textContent = phone + (Store.user.phoneVerified ? ' · 已认证' : ' · 手机号账号');
     document.getElementById('account-modal').style.display = '';
   },
 
@@ -370,7 +370,7 @@ const App = {
   _proceedWithSharedQuiz(nickname) {
     // 继续加载分享题目
     Store.shareNickname = nickname;
-    this._loadSharedQuizData();
+    this._showSharedQuizPage();
   },
 
   /* ==============================================
@@ -770,10 +770,10 @@ const App = {
         card.innerHTML = `
           <div class="qconf-q">${i + 1}. [${App._esc(q.cat)}] ${App._esc(q.q)}</div>
           <div class="qconf-opts">${q.options.map((o, oi) =>
-            `${App._esc(letters[oi])}. ${App._esc(o)}`
+            `${App._esc(letters[oi])}. ${App._esc(App._optionLabel(o))}`
           ).join(' &nbsp;')}</div>
           <div class="qconf-ans">
-            答案：${App._esc(letters[q.answer])}. ${App._esc(q.options[q.answer])}
+            答案：${App._esc(letters[q.answer])}. ${App._esc(App._optionLabel(q.options[q.answer]))}
           </div>
           <div class="qconf-del" onclick="App.pages.confirm.delQ(${i})">×</div>
         `;
@@ -819,10 +819,10 @@ const App = {
           <div class="qconf-card qconf-card-enter">
             <div class="qconf-q">${i + 1}. [${App._esc(q.cat)}] ${App._esc(q.q)}</div>
             <div class="qconf-opts">${q.options.map((o, oi) =>
-              `${App._esc(letters[oi])}. ${App._esc(o)}`
+              `${App._esc(letters[oi])}. ${App._esc(App._optionLabel(o))}`
             ).join(' &nbsp;')}</div>
             <div class="qconf-ans">
-              答案：${App._esc(letters[q.answer])}. ${App._esc(q.options[q.answer])}
+              答案：${App._esc(letters[q.answer])}. ${App._esc(App._optionLabel(q.options[q.answer]))}
             </div>
             <div class="qconf-del" onclick="App.pages.confirm.delQ(${i})">×</div>
           </div>
@@ -929,7 +929,7 @@ const App = {
         document.getElementById('prac-options').innerHTML = q.options.map((opt, i) => `
           <div class="option-item" onclick="App.pages.practice.choose(${i})" data-opt="${i}">
             <div class="opt-letter">${letters[i]}</div>
-            <span>${App._esc(opt)}</span>
+            <span>${App._esc(App._optionLabel(opt))}</span>
           </div>
         `).join('');
 
@@ -1023,7 +1023,11 @@ const App = {
         }
 
         // v1.1.0: 保存练习结果
-        this._saveResult();
+        const savePromise = this._saveResult();
+        const trackedPromise = savePromise.finally(() => {
+          if (g.attemptSavePromise === trackedPromise) g.attemptSavePromise = null;
+        });
+        g.attemptSavePromise = trackedPromise;
       },
 
       async _saveResult() {
@@ -1043,15 +1047,18 @@ const App = {
           const historyId = await App.pages.confirm._ensureHistoryRecord();
           if (historyId) {
             try {
-              await CB.addHistoryAttempt({
+              const result = await CB.addHistoryAttempt({
                 historyId,
                 attemptId: snapshot.attemptId,
                 score: snapshot.score,
                 total: snapshot.total,
                 wrongAnswers: snapshot.wrongAnswers,
               });
+              if (!result?.ok) throw new Error(result?.error || '练习记录保存失败');
             } catch (e) {
+              if (g.attemptId === snapshot.attemptId) g.attemptSaved = false;
               console.warn('保存练习结果失败:', e);
+              App.toast('练习记录保存失败，请稍后重试');
             }
           }
         }
@@ -1059,7 +1066,7 @@ const App = {
         // 分享题集：保存给分享人；答题者无需登录。
         if (Store.quizSource === 'shared' && Store.shareId) {
           try {
-            await CB.saveShareResult({
+            const result = await CB.saveShareResult({
               shareId: Store.shareId,
               attemptId: snapshot.attemptId,
               nickname: Store.shareNickname || CB.getShareNickname() || '匿名用户',
@@ -1067,8 +1074,11 @@ const App = {
               total: snapshot.total,
               wrongAnswers: snapshot.wrongAnswers,
             });
+            if (!result?.ok) throw new Error(result?.error || '好友答题记录保存失败');
           } catch (e) {
+            if (g.attemptId === snapshot.attemptId) g.attemptSaved = false;
             console.warn('保存分享结果失败:', e);
+            App.toast('好友答题记录保存失败，请稍后重试');
           }
         }
       },
@@ -1111,6 +1121,7 @@ const App = {
       },
 
       async loadQuizzes() {
+        if (Store.attemptSavePromise) await Store.attemptSavePromise;
         App.showLoading('加载题集记录...');
         try {
           const result = await CB.listHistory(1);
@@ -1270,8 +1281,8 @@ const App = {
         return questions.map((q, index) => `
           <div class="qconf-card">
             <div class="qconf-q">${index + 1}. [${App._esc(q.cat)}] ${App._esc(q.q)}</div>
-            <div class="qconf-opts">${q.options.map((option, optionIndex) => `${letters[optionIndex]}. ${App._esc(option)}`).join(' · ')}</div>
-            <div class="qconf-ans">答案：${letters[q.answer]}. ${App._esc(q.options[q.answer])}</div>
+            <div class="qconf-opts">${q.options.map((option, optionIndex) => `${letters[optionIndex]}. ${App._esc(App._optionLabel(option))}`).join(' · ')}</div>
+            <div class="qconf-ans">答案：${letters[q.answer]}. ${App._esc(App._optionLabel(q.options[q.answer]))}</div>
           </div>`).join('');
       },
     },
@@ -1287,6 +1298,10 @@ const App = {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
+  },
+
+  _optionLabel(value) {
+    return String(value || '').replace(/^\s*[A-D][.、:：)）]\s*/i, '').trim();
   },
 
   /* ==============================================

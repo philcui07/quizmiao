@@ -1,4 +1,4 @@
-// 拾知猫 - 分享管理云函数（命名、24 小时有效期、账号归属）
+// 拾知猫 - 手机号账号分享管理云函数
 
 const crypto = require('crypto');
 const cloud = require('@cloudbase/node-sdk');
@@ -7,18 +7,18 @@ const app = cloud.init({ env: cloud.SYMBOL_CURRENT_ENV });
 const db = app.database();
 const SHARE_TTL = 24 * 60 * 60 * 1000;
 
-exports.main = async (event, context) => {
-  const authId = getAuthUserId(context);
+exports.main = async (event) => {
+  const accountId = requireAccountId(event);
   try {
-    const userId = authId ? await getAccountOwnerId(authId) : '';
     switch (event.action) {
       case 'save':
-        return await saveShare(event, event.trackAccount === true ? userId : '');
+        if (event.trackAccount === true && !accountId) return { ok: false, error: '请先登录' };
+        return await saveShare(event, event.trackAccount === true ? accountId : '');
       case 'get':
         return await getShare(event);
       case 'list':
-        if (!userId) return { ok: false, error: '请先登录' };
-        return await listShares(event, userId);
+        if (!accountId) return { ok: false, error: '请先登录' };
+        return await listShares(event, accountId);
       default:
         return { ok: false, error: '未知 action: ' + event.action };
     }
@@ -28,30 +28,21 @@ exports.main = async (event, context) => {
   }
 };
 
-async function getAccountOwnerId(authId) {
-  const result = await db.collection('users').where({ owner_id: authId }).limit(1).get();
-  const profile = result.data[0];
-  if (!profile?.onboarded) return '';
-  return cleanText(profile.canonical_owner_id, 128) || authId;
-}
-
-async function saveShare(event, userId) {
+async function saveShare(event, accountId) {
   const questions = sanitizeQuestions(event.questions);
   if (questions.length === 0) return { ok: false, error: '缺少有效题目' };
 
   const now = Date.now();
   const id = crypto.randomBytes(8).toString('hex');
   await db.collection('shares').doc(id).set({
-    data: {
-      owner_id: userId || '',
-      name: cleanText(event.name, 50) || '未命名练习',
-      questions,
-      result_count: 0,
-      created_at: now,
-      expires_at: now + SHARE_TTL,
-    },
+    owner_id: accountId,
+    name: cleanText(event.name, 50) || '未命名练习',
+    questions,
+    result_count: 0,
+    created_at: now,
+    expires_at: now + SHARE_TTL,
   });
-  return { ok: true, id, expiresAt: now + SHARE_TTL, tracked: Boolean(userId) };
+  return { ok: true, id, expiresAt: now + SHARE_TTL, tracked: Boolean(accountId) };
 }
 
 async function getShare(event) {
@@ -59,8 +50,7 @@ async function getShare(event) {
   if (!id) return { ok: false, error: '缺少分享 ID' };
 
   try {
-    const result = await db.collection('shares').doc(id).get();
-    const share = result.data;
+    const share = firstDocument(await db.collection('shares').doc(id).get());
     if (!share) return { ok: false, error: '分享不存在' };
     if (share.expires_at <= Date.now()) {
       return { ok: false, error: '分享已过期（有效时长 24 小时），请让分享者重新生成' };
@@ -77,11 +67,16 @@ async function getShare(event) {
   }
 }
 
-async function listShares(event, userId) {
+function firstDocument(result) {
+  const data = result?.data;
+  return Array.isArray(data) ? data[0] || null : data || null;
+}
+
+async function listShares(event, accountId) {
   const page = Math.max(1, Number(event.page) || 1);
   const pageSize = Math.max(1, Math.min(Number(event.pageSize) || 20, 50));
   const result = await db.collection('shares')
-    .where({ owner_id: userId })
+    .where({ owner_id: accountId })
     .orderBy('created_at', 'desc')
     .skip((page - 1) * pageSize)
     .limit(pageSize)
@@ -104,18 +99,9 @@ async function listShares(event, userId) {
   };
 }
 
-function getAuthUserId(context) {
-  const cloudContext = typeof cloud.getCloudbaseContext === 'function'
-    ? cloud.getCloudbaseContext()
-    : {};
-  return cleanText(
-    context?.auth?.uid ||
-    context?.auth?.openid ||
-    cloudContext.TCB_UUID ||
-    cloudContext.WX_OPENID ||
-    cloudContext.OPENID,
-    128
-  );
+function requireAccountId(event) {
+  const phone = cleanText(event.accountPhone, 20);
+  return /^1\d{10}$/.test(phone) ? phone : '';
 }
 
 function sanitizeQuestions(value) {

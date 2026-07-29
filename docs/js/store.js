@@ -16,6 +16,7 @@ const Store = {
   quizSessionId: null,
   attemptId: null,  // 当前练习轮次 ID，用于防止重复保存
   attemptSaved: false,
+  attemptSavePromise: null,
   quizSource: 'self',  // 'self' | 'shared' — 当前题目来源
   shareId: null,    // 如果是分享链接进来的，记录分享ID
   shareName: '',    // 分享名称
@@ -34,6 +35,7 @@ const Store = {
     this.pool = [...(this.questions || [])].sort(() => Math.random() - 0.5);
     this.attemptId = this.createId('attempt');
     this.attemptSaved = false;
+    this.attemptSavePromise = null;
   },
 
   createId(prefix) {
@@ -49,6 +51,7 @@ const Store = {
     this.quizSessionId = this.createId('quiz');
     this.attemptId = null;
     this.attemptSaved = false;
+    this.attemptSavePromise = null;
   },
 
   /** v1.1.0: 重置分享相关状态 */

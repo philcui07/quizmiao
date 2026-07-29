@@ -5,16 +5,16 @@ const cloud = require('@cloudbase/node-sdk');
 const app = cloud.init({ env: cloud.SYMBOL_CURRENT_ENV });
 const db = app.database();
 
-exports.main = async (event, context) => {
-  const authId = getAuthUserId(context);
+exports.main = async (event) => {
   try {
     switch (event.action) {
       case 'save':
-        return await saveResult(event, authId);
-      case 'list':
-        const userId = authId ? await getAccountOwnerId(authId) : '';
-        if (!userId) return { ok: false, error: '请先登录' };
-        return await listResults(event, userId);
+        return await saveResult(event);
+      case 'list': {
+        const accountId = requireAccountId(event);
+        if (!accountId) return { ok: false, error: '请先登录' };
+        return await listResults(event, accountId);
+      }
       default:
         return { ok: false, error: '未知 action: ' + event.action };
     }
@@ -24,21 +24,14 @@ exports.main = async (event, context) => {
   }
 };
 
-async function getAccountOwnerId(authId) {
-  const result = await db.collection('users').where({ owner_id: authId }).limit(1).get();
-  const profile = result.data[0];
-  if (!profile?.onboarded) return '';
-  return cleanText(profile.canonical_owner_id, 128) || authId;
-}
-
-async function saveResult(event, participantId) {
+async function saveResult(event) {
   const shareId = cleanText(event.shareId, 64);
   const attemptId = cleanText(event.attemptId, 100);
   if (!shareId || !attemptId) return { ok: false, error: '缺少分享或练习轮次 ID' };
 
   let share;
   try {
-    share = (await db.collection('shares').doc(shareId).get()).data;
+    share = firstDocument(await db.collection('shares').doc(shareId).get());
   } catch (_) {
     return { ok: false, error: '分享不存在' };
   }
@@ -56,41 +49,40 @@ async function saveResult(event, participantId) {
   const score = Math.max(0, Math.min(Number(event.score) || 0, total));
   const wrongAnswers = sanitizeWrongAnswers(event.wrongAnswers, total);
   const now = Date.now();
-
   const result = await db.collection('share_results').add({
-    data: {
-      share_id: shareId,
-      sharer_id: share.owner_id,
-      participant_id: participantId || '',
-      attempt_id: attemptId,
-      nickname: cleanText(event.nickname, 20) || '匿名用户',
-      score,
-      total,
-      wrong_answers: wrongAnswers,
-      created_at: now,
-    },
+    share_id: shareId,
+    sharer_id: share.owner_id,
+    participant_id: requireAccountId(event),
+    attempt_id: attemptId,
+    nickname: cleanText(event.nickname, 20) || '匿名用户',
+    score,
+    total,
+    wrong_answers: wrongAnswers,
+    created_at: now,
   });
+  const resultId = insertedId(result);
+  if (!resultId) throw new Error('数据库未返回答题记录 ID');
 
   await db.collection('shares').doc(shareId).update({
-    data: { result_count: db.command.inc(1) },
+    result_count: db.command.inc(1),
   });
-  return { ok: true, id: result._id };
+  return { ok: true, id: resultId };
 }
 
-async function listResults(event, userId) {
+async function listResults(event, accountId) {
   const shareId = cleanText(event.shareId, 64);
   if (!shareId) return { ok: false, error: '缺少分享 ID' };
 
   let share;
   try {
-    share = (await db.collection('shares').doc(shareId).get()).data;
+    share = firstDocument(await db.collection('shares').doc(shareId).get());
   } catch (_) {
     return { ok: false, error: '分享不存在' };
   }
-  if (!share || share.owner_id !== userId) return { ok: false, error: '无权查看' };
+  if (!share || share.owner_id !== accountId) return { ok: false, error: '无权查看' };
 
   const result = await db.collection('share_results')
-    .where({ share_id: shareId, sharer_id: userId })
+    .where({ share_id: shareId, sharer_id: accountId })
     .orderBy('created_at', 'desc')
     .limit(100)
     .get();
@@ -115,18 +107,18 @@ async function listResults(event, userId) {
   };
 }
 
-function getAuthUserId(context) {
-  const cloudContext = typeof cloud.getCloudbaseContext === 'function'
-    ? cloud.getCloudbaseContext()
-    : {};
-  return cleanText(
-    context?.auth?.uid ||
-    context?.auth?.openid ||
-    cloudContext.TCB_UUID ||
-    cloudContext.WX_OPENID ||
-    cloudContext.OPENID,
-    128
-  );
+function firstDocument(result) {
+  const data = result?.data;
+  return Array.isArray(data) ? data[0] || null : data || null;
+}
+
+function requireAccountId(event) {
+  const phone = cleanText(event.accountPhone, 20);
+  return /^1\d{10}$/.test(phone) ? phone : '';
+}
+
+function insertedId(result) {
+  return cleanText(result?.id || result?._id, 128);
 }
 
 function sanitizeWrongAnswers(value, total) {
