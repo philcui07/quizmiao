@@ -1,11 +1,12 @@
 /**
- * 拾知猫 v1.1.0 — Web 版主应用
+ * 拾知猫 v1.1.1 — Web 版主应用
  *
  * v1.1.0 新增功能：
  * 1. 手机号账号登录（CloudBase 匿名身份仅用于调用云函数）
  * 2. 历史出题记录 + 练习成绩 + 错题集
  * 3. 分享命名 + 24h时效 + 被分享人昵称弹窗
  * 4. 分享链接答题记录同步给分享人
+ * 5. 历史题集可重新练习或再次分享
  */
 
 const App = {
@@ -1099,6 +1100,7 @@ const App = {
       _sharePage: 1,
       _shares: [],
       _sharesHasMore: false,
+      _detail: null,
 
       async render() {
         if (!Store.user) {
@@ -1221,6 +1223,7 @@ const App = {
           const result = await CB.getHistoryDetail(id);
           if (!result.ok) throw new Error(result.error || '加载失败');
           const item = result.history;
+          this._detail = item;
           document.getElementById('history-detail-title').textContent = item.title;
           document.getElementById('history-detail-date').textContent = new Date(item.created_at).toLocaleString('zh-CN');
           document.getElementById('history-detail-meta').textContent = `${item.questions.length} 道题 · 已练习 ${item.practice_count} 次`;
@@ -1232,6 +1235,28 @@ const App = {
         } finally {
           App.hideLoading();
         }
+      },
+
+      practiceAgain() {
+        const item = this._detail;
+        if (!item?.id || !Array.isArray(item.questions) || item.questions.length === 0) {
+          App.toast('题集内容不可用，请重新打开历史记录');
+          return;
+        }
+        Store.loadHistoryQuestions(item.id, item.questions);
+        Store.preparePool();
+        App.pages.practice.render();
+        App.navigateTo('practice');
+      },
+
+      shareAgain() {
+        const item = this._detail;
+        if (!item?.id || !Array.isArray(item.questions) || item.questions.length === 0) {
+          App.toast('题集内容不可用，请重新打开历史记录');
+          return;
+        }
+        Store.loadHistoryQuestions(item.id, item.questions);
+        App.share();
       },
 
       async viewShareResults(id) {

@@ -1,6 +1,6 @@
 {
   "envId": "quizmiao-web-d7g9642jpcaa90745",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "functions": [
     {
       "name": "quiz-generate",

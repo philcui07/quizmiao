@@ -44,6 +44,8 @@
 .history-date { font-size:11px; color:var(--text3,#999); margin-top:4px; }
 .tag-shared { background:#fef3c7; color:#92400e; }
 .tag-self { background:#dbeafe; color:#1e40af; }
+.history-detail-actions { display:flex; gap:8px; margin-top:14px; }
+.history-detail-actions .btn { flex:1; }
 /* v1.1.0: 分享命名弹窗 */
 .share-name-input { width:100%; padding:12px; border:1px solid var(--border,#e5e7eb); border-radius:8px; font-size:15px; box-sizing:border-box; }
 </style>
@@ -126,7 +128,7 @@
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
   </button>
 
-  <div class="footer-text">拾知猫 · v1.1.0</div>
+  <div class="footer-text">拾知猫 · v1.1.1</div>
 </div>
 
 <!-- ====== Page: confirm (确认页) ====== -->
@@ -234,6 +236,10 @@
     <div class="section-title" id="history-detail-title">练习详情</div>
     <div class="history-date" id="history-detail-date"></div>
     <div class="detail-meta" id="history-detail-meta"></div>
+    <div class="history-detail-actions">
+      <button type="button" class="btn btn-primary" onclick="App.pages.history.practiceAgain()">↻ 重新练习</button>
+      <button type="button" class="btn btn-outline" onclick="App.pages.history.shareAgain()">↗ 分享题集</button>
+    </div>
   </div>
 
   <div class="section-hint">练习记录</div>
@@ -372,9 +378,9 @@
 <!-- App Scripts -->
 <script src="js/phone-auth-config.js?v=111"></script>
 <script src="js/phone-auth.js?v=111"></script>
-<script src="js/store.js?v=111"></script>
+<script src="js/store.js?v=1111"></script>
 <script src="js/cloudbase.js?v=118"></script>
 <script src="js/api.js?v=111"></script>
-<script src="js/app.js?v=112"></script>
+<script src="js/app.js?v=1111"></script>
 </body>
 </html>

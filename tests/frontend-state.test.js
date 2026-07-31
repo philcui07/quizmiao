@@ -186,6 +186,61 @@ test('history waits for the active attempt save before listing quizzes', async (
   assert.deepEqual(order, ['saved', 'list']);
 });
 
+test('history detail can restart the selected quiz without creating a new history set', async () => {
+  const history = {
+    id: 'history-7',
+    title: '历史题集',
+    questions: sampleQuestions(),
+    attempts: [],
+    practice_count: 0,
+    created_at: Date.now(),
+  };
+  const CB = {
+    async getHistoryDetail(id) {
+      assert.equal(id, 'history-7');
+      return { ok: true, history };
+    },
+  };
+  const { App, Store } = loadApp({ CB });
+  Store.user = { uid: '18600002610' };
+  await App.pages.history.viewDetail('history-7');
+
+  let navigatedTo = '';
+  App.pages.practice.render = () => {};
+  App.navigateTo = (page) => { navigatedTo = page; return true; };
+  App.pages.history.practiceAgain();
+
+  assert.equal(navigatedTo, 'practice');
+  assert.equal(Store.historyId, 'history-7');
+  assert.equal(Store.quizSource, 'self');
+  assert.equal(JSON.stringify(Store.questions), JSON.stringify(history.questions));
+  assert.match(Store.attemptId, /^attempt_/);
+});
+
+test('history detail can share the selected quiz questions', async () => {
+  const questions = sampleQuestions();
+  const CB = {
+    async getHistoryDetail() {
+      return {
+        ok: true,
+        history: { id: 'history-8', title: '可分享题集', questions, attempts: [], practice_count: 0, created_at: Date.now() },
+      };
+    },
+  };
+  const { App, Store } = loadApp({ CB });
+  Store.user = { uid: '18600002610' };
+  await App.pages.history.viewDetail('history-8');
+
+  let shareCalls = 0;
+  App.share = () => { shareCalls++; };
+  App.pages.history.shareAgain();
+
+  assert.equal(shareCalls, 1);
+  assert.equal(Store.historyId, 'history-8');
+  assert.equal(Store.quizSource, 'self');
+  assert.equal(JSON.stringify(Store.questions), JSON.stringify(questions));
+});
+
 test('shared result keeps the participant nickname and attempt id', async () => {
   let savedPayload;
   const CB = {

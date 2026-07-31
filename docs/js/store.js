@@ -1,6 +1,6 @@
 /**
- * 拾知猫 v1.1.0 — 全局状态管理
- * 新增：用户状态、分享状态、来源追踪
+ * 拾知猫 v1.1.1 — 全局状态管理
+ * 新增：用户状态、分享状态、来源追踪、历史题集复练
  */
 const Store = {
   questions: null,  // AI 生成的题目数组 [{q, cat, options, answer, exp}]
@@ -9,7 +9,7 @@ const Store = {
   score: 0,         // 当前得分
   wrong: [],        // 错题记录 [{q, cat, picked, correct, exp}]
 
-  // v1.1.0 新增
+  // v1.1.0+ account and practice state
   user: null,       // 当前登录资料 {uid, phone, phoneVerified, nickname, identityScope}
   historyId: null,  // 当前自建题集在 quiz_history 中的记录 ID
   historyCreatePromise: null,
@@ -52,6 +52,25 @@ const Store = {
     this.attemptId = null;
     this.attemptSaved = false;
     this.attemptSavePromise = null;
+  },
+
+  /** Load an existing account-owned history set without creating a new set. */
+  loadHistoryQuestions(historyId, questions) {
+    this.questions = (questions || []).map((item) => ({
+      ...item,
+      options: [...(item.options || [])],
+    }));
+    this.pool = null;
+    this.historyId = historyId;
+    this.historyCreatePromise = null;
+    this.quizSessionId = this.createId('quiz');
+    this.attemptId = null;
+    this.attemptSaved = false;
+    this.attemptSavePromise = null;
+    this.quizSource = 'self';
+    this.shareId = null;
+    this.shareName = '';
+    this.shareNickname = '';
   },
 
   /** v1.1.0: 重置分享相关状态 */

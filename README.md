@@ -1,6 +1,6 @@
 # 拾知猫 Web
 
-当前开发版本：`v1.1.0-dev`
+当前开发版本：`v1.1.1-dev`
 
 ## 目录
 
@@ -21,5 +21,5 @@ find docs cloudbase -name '*.js' -not -path '*/node_modules/*' -exec node --chec
 ## 版本规则
 
 - `v1.0.1` 已冻结，不再修改。
-- 当前功能提交到 `v1.1.0-dev`。
+- 当前功能提交到 `v1.1.1-dev`。
 - Web 完成验收后再进入 Miniapp `v1.1.0-dev` 开发。

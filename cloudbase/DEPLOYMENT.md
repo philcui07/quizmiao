@@ -1,6 +1,6 @@
-# 拾知猫 v1.1.0 CloudBase 部署手册
+# 拾知猫 v1.1.1 CloudBase 部署手册
 
-本手册对应 Web v1.1.0-dev。业务后端全部运行在腾讯云 CloudBase，Vercel 和短信验证码均不属于 v1.1.0 运行链路。
+本手册对应 Web v1.1.1-dev。业务后端全部运行在腾讯云 CloudBase，Vercel 和短信验证码均不属于 v1.1.1 运行链路。
 
 ## 1. Web 手机号账号边界
 
@@ -10,7 +10,7 @@
 - WebOTP API 只读取应用发送的短信一次性验证码，仍需要短信发送和服务端验证码校验，不能返回本机手机号：<https://developer.mozilla.org/en-US/docs/Web/API/WebOTP_API>
 - Web 一键认证必须采购运营商或聚合认证产品。供应商前端 SDK 获取短期 token，CloudBase 服务端再用密钥校验 token 并换取手机号。
 
-v1.1.0 采用最小可用账号方案：用户输入以 `1` 开头的 11 位手机号，手机号本身就是账号 ID。不发送短信、不校验号码归属、不绑定设备，也不接入运营商认证。知道某个手机号的人可以进入该账号，因此当前版本只适合产品验证，不适合保存敏感资料。
+v1.1.1 采用最小可用账号方案：用户输入以 `1` 开头的 11 位手机号，手机号本身就是账号 ID。不发送短信、不校验号码归属、不绑定设备，也不接入运营商认证。知道某个手机号的人可以进入该账号，因此当前版本只适合产品验证，不适合保存敏感资料。
 
 `phone-auth` 云函数保留为禁用占位，`PHONE_AUTH_PROVIDER` 必须保持 `disabled`。后续若接入短信或运营商认证，应作为独立版本重新设计认证和账号迁移，不能直接启用占位配置。
 
@@ -79,7 +79,7 @@ v1.1.0 采用最小可用账号方案：用户输入以 `1` 开头的 11 位手�
 依次创建：
 
 - users
-- phone_bindings（保留集合，v1.1.0 不读写）
+- phone_bindings（保留集合，v1.1.1 不读写）
 - quiz_history
 - quiz_attempts
 - shares
@@ -117,7 +117,7 @@ v1.1.0 采用最小可用账号方案：用户输入以 `1` 开头的 11 位手�
 1. 当前 Web 使用腾讯官方静态 CDN 上的 CloudBase SDK 3.6.4，通过 `signInAnonymously()` 获取云函数网关凭据；升级 SDK 时必须重新执行移动端登录、历史和分享回归。
 2. 确认 index.html 中脚本顺序为 phone-auth-config、phone-auth、供应商 adapter、store、cloudbase、api、app。
 3. 修改 SDK、JS 或 CSS 后递增静态资源查询参数。
-4. 本地验证后提交 v1.1.0-dev；不要修改 miniapp。
+4. 本地验证后提交 v1.1.1-dev；不要修改 miniapp。
 5. 将 `docs/` 部署到 CloudBase 静态网站托管；GitHub Pages 可保留为不连接 CloudBase 的预览入口。
 
 ## 9. 上线前验收
