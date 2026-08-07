@@ -1,0 +1,93 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+
+import handler from "../api/index.js";
+
+function createRequest(body) {
+  const req = new EventEmitter();
+  req.method = "POST";
+  req.url = "/llm-stream";
+  req.headers = { host: "localhost" };
+  req.send = () => {
+    req.emit("data", JSON.stringify(body));
+    req.emit("end");
+  };
+  return req;
+}
+
+function createResponse() {
+  const chunks = [];
+  return {
+    chunks,
+    headers: {},
+    ended: false,
+    setHeader(name, value) {
+      this.headers[name.toLowerCase()] = value;
+    },
+    write(chunk) {
+      chunks.push(String(chunk));
+    },
+    end() {
+      this.ended = true;
+    },
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(data) {
+      this.body = data;
+      this.ended = true;
+      return data;
+    },
+  };
+}
+
+function parseEvents(response) {
+  return response.chunks
+    .join("")
+    .split("\n\n")
+    .filter((line) => line.startsWith("data: "))
+    .map((line) => JSON.parse(line.slice(6)));
+}
+
+test("llm-stream emits start, validated questions, and done from a non-streaming upstream response", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, options) => {
+    const payload = JSON.parse(options.body);
+    assert.equal(payload.stream, false);
+    return {
+      ok: true,
+      async json() {
+        return {
+          choices: [{
+            message: {
+              content: JSON.stringify([
+                { cat: "天文", q: "地球绕太阳一周需要多久？", options: ["一天", "一年", "一月", "十年"], answer: 1, exp: "约一年" },
+                { cat: "天文", q: "月球是什么？", options: ["恒星", "彗星", "行星", "卫星"], answer: 3, exp: "天然卫星" },
+              ]),
+            },
+          }],
+        };
+      },
+    };
+  };
+
+  try {
+    const req = createRequest({ content: "足够长度的天文知识内容，用于生成测试题目。", count: 2 });
+    const res = createResponse();
+    const result = handler(req, res);
+    req.send();
+    await result;
+
+    const events = parseEvents(res);
+    assert.equal(res.headers["content-type"], "text/event-stream; charset=utf-8");
+    assert.equal(res.ended, true);
+    assert.deepEqual(events.map((event) => event.type), ["start", "question", "question", "done"]);
+    assert.equal(events[0].count, 2);
+    assert.equal(events[3].count, 2);
+    assert.equal(events[1].question.options.length, 4);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

@@ -290,7 +290,7 @@ async function handleLLM(req, res) {
   }
 }
 
-// ---- LLM: generate quiz with SSE streaming ----
+// ---- LLM: SSE-compatible response backed by a reliable non-streaming request ----
 async function handleLLMStream(req, res) {
   // SSE headers
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
@@ -307,8 +307,15 @@ async function handleLLMStream(req, res) {
 
   const n = count || 10;
   const prompt = buildPrompt(content, n);
+  let heartbeat = null;
 
   try {
+    // The Vercel-to-DeepSeek streaming bridge could close after the start event
+    // without flushing questions. Keep the browser contract, but use the same
+    // proven non-streaming upstream request as /llm and emit SSE after parsing.
+    res.write(`data: ${JSON.stringify({ type: "start", count: n })}\n\n`);
+    heartbeat = setInterval(() => res.write(": keepalive\n\n"), 10000);
+
     const resp = await fetch("https://api.deepseek.com/chat/completions", {
       method: "POST",
       headers: {
@@ -320,7 +327,7 @@ async function handleLLMStream(req, res) {
         messages: [{ role: "user", content: prompt }],
         temperature: 0.5,
         max_tokens: 8192,
-        stream: true,
+        stream: false,
       }),
     });
 
@@ -329,68 +336,42 @@ async function handleLLMStream(req, res) {
       return res.end();
     }
 
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let sseBuffer = "";
-    let contentBuffer = "";
-    let sentCount = 0;
+    const data = await resp.json();
+    let text = data.choices?.[0]?.message?.content || "";
+    text = text.replace(/```json|```/g, "").trim();
 
-    // Send start event
-    res.write(`data: ${JSON.stringify({ type: "start", count: n })}\n\n`);
+    const start = text.indexOf("[");
+    const end = text.lastIndexOf("]");
+    if (start >= 0 && end > start) text = text.slice(start, end + 1);
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      sseBuffer += decoder.decode(value, { stream: true });
-      const lines = sseBuffer.split("\n");
-      sseBuffer = lines.pop(); // keep incomplete line
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data: ")) continue;
-        const data = trimmed.slice(6);
-        if (data === "[DONE]") continue;
-
-        try {
-          const json = JSON.parse(data);
-          const delta = json.choices?.[0]?.delta?.content || "";
-          if (delta) contentBuffer += delta;
-        } catch (_) {}
-
-        // Try to extract complete JSON objects
-        const result = extractCompleteObjects(contentBuffer);
-        for (const q of result.objects) {
-          const valid = validateQuestion(q);
-          if (valid) {
-            sentCount++;
-            res.write(
-              `data: ${JSON.stringify({ type: "question", question: valid, index: sentCount })}\n\n`
-            );
-          }
-        }
-        contentBuffer = result.remaining;
-      }
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (_) {
+      res.write(`data: ${JSON.stringify({ type: "error", error: "JSON 解析失败" })}\n\n`);
+      return res.end();
     }
 
-    // Process any remaining content
-    const finalResult = extractCompleteObjects(contentBuffer);
-    for (const q of finalResult.objects) {
-      const valid = validateQuestion(q);
-      if (valid) {
-        sentCount++;
-        res.write(
-          `data: ${JSON.stringify({ type: "question", question: valid, index: sentCount })}\n\n`
-        );
-      }
+    const questions = shuffleUntilBalanced(validateQuestions(parsed));
+    if (questions.length === 0) {
+      res.write(`data: ${JSON.stringify({ type: "error", error: "有效题目不足" })}\n\n`);
+      return res.end();
     }
+
+    questions.forEach((question, index) => {
+      res.write(
+        `data: ${JSON.stringify({ type: "question", question, index: index + 1 })}\n\n`
+      );
+    });
 
     // Send done event
-    res.write(`data: ${JSON.stringify({ type: "done", count: sentCount })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: "done", count: questions.length })}\n\n`);
     res.end();
   } catch (e) {
     res.write(`data: ${JSON.stringify({ type: "error", error: e.message })}\n\n`);
     res.end();
+  } finally {
+    if (heartbeat) clearInterval(heartbeat);
   }
 }
 
@@ -409,60 +390,6 @@ ${content.slice(0, 8000)}
 3.answer下标0-3均匀分布
 4.覆盖不同知识点
 5.只输出JSON`;
-}
-
-// ---- Extract complete JSON objects from streaming buffer ----
-function extractCompleteObjects(buffer) {
-  const objects = [];
-  let searchFrom = 0;
-
-  while (true) {
-    const start = buffer.indexOf("{", searchFrom);
-    if (start === -1) {
-      return { objects, remaining: "" };
-    }
-
-    let depth = 0;
-    let inString = false;
-    let escape = false;
-    let end = -1;
-
-    for (let i = start; i < buffer.length; i++) {
-      const c = buffer[i];
-      if (escape) {
-        escape = false;
-        continue;
-      }
-      if (c === "\\") {
-        escape = true;
-        continue;
-      }
-      if (c === '"') {
-        inString = !inString;
-        continue;
-      }
-      if (inString) continue;
-      if (c === "{" || c === "[") depth++;
-      if (c === "}" || c === "]") depth--;
-      if (depth === 0 && c === "}") {
-        end = i;
-        break;
-      }
-    }
-
-    if (end === -1) {
-      // Incomplete object — keep from this brace
-      return { objects, remaining: buffer.slice(start) };
-    }
-
-    const objStr = buffer.slice(start, end + 1);
-    try {
-      const obj = JSON.parse(objStr);
-      objects.push(obj);
-    } catch (_) {}
-
-    searchFrom = end + 1;
-  }
 }
 
 // ---- LLM: verify answers ----
