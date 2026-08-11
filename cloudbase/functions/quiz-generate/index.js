@@ -181,13 +181,14 @@ async function requestQuestionBatch(content, count, batchIndex, batchCount, requ
           signal: controller.signal,
         });
       } catch (error) {
-        if (error.name === "AbortError") throw new Error("DeepSeek 请求超时");
+        if (error.name === "AbortError") throw createUpstreamError("DeepSeek 请求超时", false);
         throw error;
       } finally {
         clearTimeout(timeout);
       }
 
-      if (!resp.ok) throw new Error(`DeepSeek API ${resp.status}`);
+      const status = Number(resp.status) || 502;
+      if (!resp.ok) throw createUpstreamError(`DeepSeek API ${status}`, status >= 500);
       const data = await resp.json();
       const questions = validateQuestions(parseQuestions(data.choices?.[0]?.message?.content) || []);
       if (questions.length === 0) throw new Error("JSON 解析失败");
@@ -212,9 +213,16 @@ async function requestQuestionBatch(content, count, batchIndex, batchCount, requ
         elapsed_ms: Date.now() - startedAt,
         error: error.message,
       }));
+      if (error.retryable === false) break;
     }
   }
-  throw lastError || new Error("AI 出题失败");
+  throw lastError || createUpstreamError("AI 出题失败");
+}
+
+function createUpstreamError(message, retryable = true) {
+  const error = new Error(message);
+  error.retryable = retryable;
+  return error;
 }
 
 function maxTokensForBatch(count) {
