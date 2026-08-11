@@ -31,6 +31,11 @@ exports.main = async (event, context) => {
       return await handleGetQuiz(shareId);
     }
 
+    // 生成当前题集对应的小程序二维码
+    if (action === 'getShareCode') {
+      return await handleGetShareCode(shareId);
+    }
+
     return { ok: false, error: 'Unknown action: ' + action };
   } catch (e) {
     console.error('proxy error:', e.message);
@@ -63,6 +68,8 @@ function handleLLMStream(content, count) {
 
     const questions = [];
     let buffer = '';
+    let receivedStart = false;
+    let streamError = '';
     const startTime = Date.now();
 
     const req = https.request(options, (resp) => {
@@ -80,11 +87,15 @@ function handleLLMStream(content, count) {
           
           try {
             const data = JSON.parse(jsonStr);
+            if (data.type === 'start') {
+              receivedStart = true;
+            }
             if (data.type === 'question' && data.question) {
               questions.push(data.question);
             } else if (data.type === 'done') {
               // 正常完成
             } else if (data.type === 'error') {
+              streamError = data.error || 'AI 出题失败';
               console.error('LLM stream error:', data.error);
             }
           } catch (_) {
@@ -97,9 +108,11 @@ function handleLLMStream(content, count) {
         const elapsed = Date.now() - startTime;
         console.log(`[proxy] llm-stream done: ${questions.length} questions in ${elapsed}ms`);
         
-        if (questions.length < 1) {
-          // Fallback to non-streaming
+        if (questions.length < 1 && !receivedStart && !streamError) {
+          // Only fallback when the SSE endpoint could not start at all.
           fallbackNonStream(content, count, resolve);
+        } else if (questions.length < 1) {
+          resolve({ ok: false, error: streamError || 'AI 未生成有效题目' });
         } else {
           // Extract category tags
           const cats = [...new Set(questions.map(q => q.cat))];
@@ -115,7 +128,19 @@ function handleLLMStream(content, count) {
 
       resp.on('error', (err) => {
         console.error('LLM stream response error:', err.message);
-        fallbackNonStream(content, count, resolve);
+        if (questions.length > 0) {
+          resolve({
+            ok: true,
+            questions,
+            cats: [...new Set(questions.map(q => q.cat))],
+            count: questions.length,
+            elapsed_ms: Date.now() - startTime
+          });
+        } else if (receivedStart || streamError) {
+          resolve({ ok: false, error: streamError || 'AI 出题失败' });
+        } else {
+          fallbackNonStream(content, count, resolve);
+        }
       });
     });
 
@@ -131,19 +156,29 @@ function handleLLMStream(content, count) {
           elapsed_ms: Date.now() - startTime
         });
       } else {
-        resolve({ ok: false, error: 'AI 出题超时，请减少题数后重试' });
+        resolve({ ok: false, error: streamError || 'AI 出题超时，请减少题数后重试' });
       }
     });
 
     req.on('error', (err) => {
       console.error('LLM stream request error:', err.message);
-      fallbackNonStream(content, count, resolve);
+      if (questions.length > 0) {
+        resolve({
+          ok: true,
+          questions,
+          cats: [...new Set(questions.map(q => q.cat))],
+          count: questions.length,
+          elapsed_ms: Date.now() - startTime
+        });
+      } else {
+        fallbackNonStream(content, count, resolve);
+      }
     });
 
     req.write(postData);
     req.end();
 
-    // 兜底超时：60秒
+    // 兜底超时：与云函数调用上限一致，避免重复请求长期占用实例。
     setTimeout(() => {
       if (questions.length > 0) {
         resolve({
@@ -266,4 +301,33 @@ async function handleGetQuiz(shareId) {
   } catch (e) {
     return { ok: false, error: '获取分享题目失败: ' + e.message };
   }
+}
+
+/**
+ * 生成小程序二维码并上传到云存储，扫码后直达分享题目页
+ */
+async function handleGetShareCode(shareId) {
+  if (!shareId) return { ok: false, error: '缺少分享 ID' };
+
+  const result = await cloud.openapi.wxacode.getUnlimited({
+    scene: String(shareId),
+    page: 'pages/confirm/confirm',
+    checkPath: false,
+    width: 430
+  });
+  if (!result || !result.buffer) {
+    return { ok: false, error: '微信二维码服务未返回图片' };
+  }
+
+  const uploaded = await cloud.uploadFile({
+    cloudPath: 'share-codes/' + shareId + '.png',
+    fileContent: result.buffer
+  });
+  const tempResult = await cloud.getTempFileURL({ fileList: [uploaded.fileID] });
+  const file = tempResult.fileList && tempResult.fileList[0];
+  if (!file || !file.tempFileURL) {
+    return { ok: false, error: '二维码临时地址生成失败' };
+  }
+
+  return { ok: true, url: file.tempFileURL };
 }
