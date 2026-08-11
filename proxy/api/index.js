@@ -477,14 +477,15 @@ async function requestQuestionBatch(content, count, batchIndex, batchCount, requ
           signal: controller.signal,
         });
       } catch (error) {
-        if (error.name === "AbortError") throw createUpstreamError("DeepSeek 请求超时", 504);
+        if (error.name === "AbortError") throw createUpstreamError("DeepSeek 请求超时", 504, false);
         throw error;
       } finally {
         clearTimeout(timeout);
       }
 
       if (!resp.ok) {
-        throw createUpstreamError(`API ${resp.status}`);
+        const status = Number(resp.status) || 502;
+        throw createUpstreamError(`API ${status}`, status, status >= 500);
       }
 
       const data = await resp.json();
@@ -514,6 +515,7 @@ async function requestQuestionBatch(content, count, batchIndex, batchCount, requ
         elapsed_ms: Date.now() - startedAt,
         error: error.message,
       }));
+      if (error.retryable === false) break;
     }
   }
 
@@ -547,9 +549,10 @@ function parseQuestionResponse(rawText) {
   throw createUpstreamError("JSON 解析失败");
 }
 
-function createUpstreamError(message) {
+function createUpstreamError(message, statusCode = 502, retryable = true) {
   const error = new Error(message);
-  error.statusCode = message.includes("超时") ? 504 : 502;
+  error.statusCode = statusCode;
+  error.retryable = retryable;
   return error;
 }
 
