@@ -1,15 +1,31 @@
 // 拾知猫 — AI 出题云函数 (CloudBase)
 // 替代 Vercel proxy/api/index.js 中的 handleLLM + handleVerify
 
+const crypto = require("crypto");
 const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
+const MAX_QUESTIONS_PER_BATCH = envInt("QUIZ_BATCH_SIZE", 2, 1, 5);
+const MAX_CONCURRENT_BATCHES = envInt("QUIZ_BATCH_CONCURRENCY", 5, 1, 10);
+const MAX_BATCH_ATTEMPTS = envInt("QUIZ_BATCH_ATTEMPTS", 2, 1, 2);
+const UPSTREAM_TIMEOUT_MS = envInt("QUIZ_UPSTREAM_TIMEOUT_MS", 10000, 4000, 20000);
+const CACHE_TTL_MS = envInt("QUIZ_CACHE_TTL_MS", 10 * 60 * 1000, 60000, 60 * 60 * 1000);
+const CACHE_MAX_ENTRIES = envInt("QUIZ_CACHE_MAX_ENTRIES", 100, 10, 500);
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX = envInt("QUIZ_RATE_LIMIT_MAX", 60, 10, 300);
+const quizCache = new Map();
+const rateLimits = new Map();
+
+function envInt(name, fallback, min, max) {
+  const value = Number.parseInt(process.env[name], 10);
+  return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+}
 
 exports.main = async (event, context) => {
   const { action } = event;
 
   switch (action) {
     case "generate":
-      return await generate(event);
+      return await generate(event, context);
     case "verify":
       return await verify(event);
     default:
@@ -18,53 +34,36 @@ exports.main = async (event, context) => {
 };
 
 // ---- AI 出题 ----
-async function generate(event) {
+async function generate(event, context = {}) {
   const t0 = Date.now();
   const content = String(event.content || '').trim().slice(0, 50000);
   if (content.length < 20) return { ok: false, error: "内容至少需要 20 个字符" };
   if (!DEEPSEEK_KEY) return { ok: false, error: "服务尚未配置 DeepSeek API Key" };
 
-  const n = Math.max(5, Math.min(Number(event.count) || 10, 50));
-  const prompt = buildPrompt(content, n);
+  const quota = consumeGenerateQuota(event, context);
+  if (!quota.allowed) {
+    return { ok: false, error: "请求过于频繁，请稍后重试", retry_after: quota.retryAfter };
+  }
+
+  const n = Math.max(1, Math.min(Number(event.count) || 10, 50));
+  const key = quizCacheKey(content, n);
+  const cached = getCachedQuiz(key);
+  if (cached) {
+    return { ok: true, questions: cached, elapsed_ms: Date.now() - t0, cached: true };
+  }
+  const requestId = crypto.randomUUID();
 
   try {
-    const resp = await fetch("https://api.deepseek.com/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + DEEPSEEK_KEY,
-      },
-      body: JSON.stringify({
-        model: DEEPSEEK_MODEL,
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.5,
-        max_tokens: Math.min(8192, Math.max(2048, n * 300)),
-        response_format: { type: "json_object" },
-        stream: false,
-      }),
-    });
-
-    if (!resp.ok) {
-      return { ok: false, error: `DeepSeek API ${resp.status}` };
-    }
-
-    const data = await resp.json();
-    const arr = parseQuestions(data.choices?.[0]?.message?.content);
-    if (!arr) {
-      return { ok: false, error: "JSON 解析失败" };
-    }
-
-    if (!Array.isArray(arr) || arr.length < 1) {
-      return { ok: false, error: "题目数量不足" };
-    }
-
-    const valid = validateQuestions(arr);
-    if (valid.length < 1) {
-      return { ok: false, error: "有效题目不足" };
-    }
-
-    const shuffled = shuffleUntilBalanced(valid);
+    const shuffled = await generateQuizQuestions(content, n, requestId);
+    cacheQuiz(key, shuffled);
     const t1 = Date.now();
+    console.log(JSON.stringify({
+      event: "quiz_request",
+      request_id: requestId,
+      count: shuffled.length,
+      elapsed_ms: t1 - t0,
+      cached: false,
+    }));
     return {
       ok: true,
       questions: shuffled,
@@ -73,6 +72,153 @@ async function generate(event) {
   } catch (e) {
     return { ok: false, error: e.message };
   }
+}
+
+function clientKey(event, context) {
+  return String(
+    event.accountPhone || context.TCB_UUID || context.OPENID || context.WX_OPENID || "anonymous"
+  );
+}
+
+function consumeGenerateQuota(event, context) {
+  const now = Date.now();
+  const key = clientKey(event, context);
+  const entry = rateLimits.get(key);
+  if (!entry || entry.expiresAt <= now) {
+    if (rateLimits.size >= 5000) {
+      for (const [storedKey, storedEntry] of rateLimits) {
+        if (storedEntry.expiresAt <= now) rateLimits.delete(storedKey);
+      }
+      if (rateLimits.size >= 5000) rateLimits.delete(rateLimits.keys().next().value);
+    }
+    rateLimits.set(key, { count: 1, expiresAt: now + RATE_LIMIT_WINDOW_MS });
+    return { allowed: true };
+  }
+  if (entry.count >= RATE_LIMIT_MAX) {
+    return { allowed: false, retryAfter: Math.max(1, Math.ceil((entry.expiresAt - now) / 1000)) };
+  }
+  entry.count += 1;
+  return { allowed: true };
+}
+
+function quizCacheKey(content, count) {
+  return crypto.createHash("sha256").update(`${DEEPSEEK_MODEL}:${count}:${content}`).digest("hex");
+}
+
+function getCachedQuiz(key) {
+  const entry = quizCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    quizCache.delete(key);
+    return null;
+  }
+  return entry.questions.map((question) => ({ ...question, options: question.options.slice() }));
+}
+
+function cacheQuiz(key, questions) {
+  if (quizCache.size >= CACHE_MAX_ENTRIES) {
+    const oldest = quizCache.keys().next().value;
+    if (oldest) quizCache.delete(oldest);
+  }
+  quizCache.set(key, {
+    questions: questions.map((question) => ({ ...question, options: question.options.slice() })),
+    expiresAt: Date.now() + CACHE_TTL_MS,
+  });
+}
+
+async function generateQuizQuestions(content, count, requestId) {
+  const batchSizes = [];
+  for (let remaining = count; remaining > 0; remaining -= MAX_QUESTIONS_PER_BATCH) {
+    batchSizes.push(Math.min(MAX_QUESTIONS_PER_BATCH, remaining));
+  }
+
+  const results = new Array(batchSizes.length);
+  let nextBatch = 0;
+  async function runWorker() {
+    while (nextBatch < batchSizes.length) {
+      const batchIndex = nextBatch++;
+      results[batchIndex] = await requestQuestionBatch(
+        content,
+        batchSizes[batchIndex],
+        batchIndex,
+        batchSizes.length,
+        requestId
+      );
+    }
+  }
+
+  const workerCount = Math.min(MAX_CONCURRENT_BATCHES, batchSizes.length);
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+  const questions = validateQuestions(results.flat()).slice(0, count);
+  if (questions.length === 0) throw new Error("有效题目不足");
+  return shuffleUntilBalanced(questions);
+}
+
+async function requestQuestionBatch(content, count, batchIndex, batchCount, requestId) {
+  let lastError;
+  for (let attempt = 1; attempt <= MAX_BATCH_ATTEMPTS; attempt++) {
+    const startedAt = Date.now();
+    try {
+      const prompt = buildPrompt(content, count, batchIndex, batchCount, attempt);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+      let resp;
+      try {
+        resp = await fetch("https://api.deepseek.com/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + DEEPSEEK_KEY,
+          },
+          body: JSON.stringify({
+            model: DEEPSEEK_MODEL,
+            messages: [{ role: "user", content: prompt }],
+            temperature: 0.2,
+            max_tokens: maxTokensForBatch(count),
+            response_format: { type: "json_object" },
+            stream: false,
+          }),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (error.name === "AbortError") throw new Error("DeepSeek 请求超时");
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      if (!resp.ok) throw new Error(`DeepSeek API ${resp.status}`);
+      const data = await resp.json();
+      const questions = validateQuestions(parseQuestions(data.choices?.[0]?.message?.content) || []);
+      if (questions.length === 0) throw new Error("JSON 解析失败");
+      console.log(JSON.stringify({
+        event: "quiz_batch",
+        request_id: requestId,
+        batch: batchIndex + 1,
+        batch_count: batchCount,
+        attempt,
+        elapsed_ms: Date.now() - startedAt,
+        questions: questions.length,
+      }));
+      return questions;
+    } catch (error) {
+      lastError = error;
+      console.warn(JSON.stringify({
+        event: "quiz_batch_error",
+        request_id: requestId,
+        batch: batchIndex + 1,
+        batch_count: batchCount,
+        attempt,
+        elapsed_ms: Date.now() - startedAt,
+        error: error.message,
+      }));
+    }
+  }
+  throw lastError || new Error("AI 出题失败");
+}
+
+function maxTokensForBatch(count) {
+  return Math.min(2400, Math.max(900, count * 320));
 }
 
 // ---- AI 验证答案 ----
@@ -177,8 +323,10 @@ ${questionList}
 }
 
 // ---- Prompt 构建 ----
-function buildPrompt(content, n) {
-  return `你是专业出题老师。根据以下内容出${n}道四选一选择题。
+function buildPrompt(content, n, batchIndex = 0, batchCount = 1, attempt = 1) {
+  const batchHint = batchCount > 1 ? `这是第${batchIndex + 1}/${batchCount}批，请侧重不同知识点。` : "";
+  const retryHint = attempt > 1 ? "上次输出格式错误，这次必须严格遵守 JSON。" : "";
+  return `你是专业出题老师。根据以下内容出${n}道四选一选择题。${batchHint}${retryHint}
 
 内容：
 ${content.slice(0, 8000)}
@@ -190,7 +338,8 @@ ${content.slice(0, 8000)}
 2.选项长度相近，干扰项有迷惑性
 3.answer下标0-3均匀分布
 4.覆盖不同知识点
-5.只输出 JSON 对象，不要 Markdown、解释或代码块`;
+5.解析简洁准确，不超过60字
+6.只输出 JSON 对象，不要 Markdown、解释或代码块`;
 }
 
 function parseQuestions(content) {
