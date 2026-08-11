@@ -7,7 +7,13 @@
       "timeout": 60,
       "env": {
         "DEEPSEEK_API_KEY": "",
-        "DEEPSEEK_MODEL": "deepseek-v4-flash"
+        "DEEPSEEK_MODEL": "deepseek-v4-flash",
+        "QUIZ_BATCH_SIZE": "2",
+        "QUIZ_BATCH_CONCURRENCY": "5",
+        "QUIZ_BATCH_ATTEMPTS": "2",
+        "QUIZ_UPSTREAM_TIMEOUT_MS": "10000",
+        "QUIZ_CACHE_TTL_MS": "600000",
+        "QUIZ_RATE_LIMIT_MAX": "60"
       }
     },
     {
