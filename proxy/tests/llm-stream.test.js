@@ -217,3 +217,51 @@ test("llm-stream retries a batch when the model returns invalid JSON", async () 
     globalThis.fetch = originalFetch;
   }
 });
+
+test("llm-stream emits a completed batch before a slower batch finishes", async () => {
+  const originalFetch = globalThis.fetch;
+  let callCount = 0;
+  let releaseSlowBatch;
+  const slowBatch = new Promise((resolve) => {
+    releaseSlowBatch = resolve;
+  });
+
+  const makeQuestions = (batch) => Array.from({ length: 5 }, (_, index) => ({
+    cat: `实时批次${batch}`,
+    q: `实时第${batch}批第${index + 1}题？`,
+    options: ["选项一", "选项二", "选项三", "选项四"],
+    answer: index % 4,
+    exp: "测试实时批次",
+  }));
+
+  globalThis.fetch = async () => {
+    const batch = ++callCount;
+    return {
+      ok: true,
+      async json() {
+        if (batch === 2) await slowBatch;
+        return { choices: [{ message: { content: JSON.stringify({ questions: makeQuestions(batch) }) } }] };
+      },
+    };
+  };
+
+  try {
+    const req = createRequest({ content: "足够长度的天文知识内容，用于测试逐批 SSE 输出。", count: 10 });
+    const res = createResponse();
+    const result = handler(req, res);
+    req.send();
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const partialEvents = parseEvents(res);
+    assert.equal(partialEvents.filter((event) => event.type === "question").length, 5);
+    assert.equal(partialEvents.some((event) => event.type === "done"), false);
+
+    releaseSlowBatch();
+    await result;
+    const events = parseEvents(res);
+    assert.equal(events.filter((event) => event.type === "question").length, 10);
+    assert.equal(events.at(-1).type, "done");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

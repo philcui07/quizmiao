@@ -270,16 +270,18 @@ async function handleLLMStream(req, res) {
     res.write(`data: ${JSON.stringify({ type: "start", count: n })}\n\n`);
     heartbeat = setInterval(() => res.write(": keepalive\n\n"), 10000);
 
-    const questions = await generateQuizQuestions(content, n);
-
-    questions.forEach((question, index) => {
-      res.write(
-        `data: ${JSON.stringify({ type: "question", question, index: index + 1 })}\n\n`
-      );
+    let sentCount = 0;
+    await generateQuizQuestions(content, n, (batch) => {
+      batch.forEach((question) => {
+        sentCount += 1;
+        res.write(
+          `data: ${JSON.stringify({ type: "question", question, index: sentCount })}\n\n`
+        );
+      });
     });
 
     // Send done event
-    res.write(`data: ${JSON.stringify({ type: "done", count: questions.length })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: "done", count: sentCount })}\n\n`);
     res.end();
   } catch (e) {
     res.write(`data: ${JSON.stringify({ type: "error", error: e.message })}\n\n`);
@@ -294,7 +296,7 @@ function normalizeQuestionCount(count) {
   return Number.isFinite(parsed) ? Math.min(50, Math.max(1, parsed)) : 10;
 }
 
-async function generateQuizQuestions(content, count) {
+async function generateQuizQuestions(content, count, onBatch = null) {
   const batchSizes = [];
   for (let remaining = count; remaining > 0; remaining -= MAX_QUESTIONS_PER_BATCH) {
     batchSizes.push(Math.min(MAX_QUESTIONS_PER_BATCH, remaining));
@@ -306,12 +308,14 @@ async function generateQuizQuestions(content, count) {
   async function runWorker() {
     while (nextBatch < batchSizes.length) {
       const batchIndex = nextBatch++;
-      results[batchIndex] = await requestQuestionBatch(
+      const batch = await requestQuestionBatch(
         content,
         batchSizes[batchIndex],
         batchIndex,
         batchSizes.length
       );
+      results[batchIndex] = shuffleUntilBalanced(batch);
+      if (onBatch) onBatch(results[batchIndex]);
     }
   }
 
@@ -324,7 +328,7 @@ async function generateQuizQuestions(content, count) {
     error.statusCode = 502;
     throw error;
   }
-  return shuffleUntilBalanced(questions);
+  return onBatch ? questions : shuffleUntilBalanced(questions);
 }
 
 async function requestQuestionBatch(content, count, batchIndex, batchCount) {
