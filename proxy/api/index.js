@@ -1,13 +1,28 @@
 // Vercel Serverless Function — 拾知猫后端代理
 // 标准 Node.js (req, res) 模式
+import { createHash, randomUUID } from "node:crypto";
+
 const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY;
-const MAX_QUESTIONS_PER_BATCH = 5;
-const MAX_CONCURRENT_BATCHES = 2;
-const MAX_BATCH_ATTEMPTS = 2;
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
+const MAX_QUESTIONS_PER_BATCH = envInt("QUIZ_BATCH_SIZE", 2, 1, 5);
+const MAX_CONCURRENT_BATCHES = envInt("QUIZ_BATCH_CONCURRENCY", 5, 1, 10);
+const MAX_BATCH_ATTEMPTS = envInt("QUIZ_BATCH_ATTEMPTS", 2, 1, 2);
+const UPSTREAM_TIMEOUT_MS = envInt("QUIZ_UPSTREAM_TIMEOUT_MS", 10000, 4000, 20000);
+const CACHE_TTL_MS = envInt("QUIZ_CACHE_TTL_MS", 10 * 60 * 1000, 60000, 60 * 60 * 1000);
+const CACHE_MAX_ENTRIES = envInt("QUIZ_CACHE_MAX_ENTRIES", 100, 10, 500);
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX = envInt("QUIZ_RATE_LIMIT_MAX", 60, 10, 300);
 
 // 内存分享存储（Vercel Serverless 实例内共享，低流量下实例存活数分钟到数小时，适合临时分享场景）
 const shareStore = new Map();
 const SHARE_TTL = 60 * 60 * 1000; // 1小时
+const quizCache = new Map();
+const rateLimits = new Map();
+
+function envInt(name, fallback, min, max) {
+  const value = Number.parseInt(process.env[name], 10);
+  return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+}
 
 function generateShortId() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -18,6 +33,83 @@ function cleanupShares() {
   for (const [id, entry] of shareStore) {
     if (entry.expiresAt < now) shareStore.delete(id);
   }
+}
+
+function getClientKey(req) {
+  const forwarded = req.headers["x-forwarded-for"] || req.headers["x-real-ip"] || "unknown";
+  return String(forwarded).split(",")[0].trim() || "unknown";
+}
+
+function consumeGenerateQuota(req) {
+  const now = Date.now();
+  const key = getClientKey(req);
+  const entry = rateLimits.get(key);
+  if (!entry || entry.expiresAt <= now) {
+    if (rateLimits.size >= 5000) {
+      for (const [storedKey, storedEntry] of rateLimits) {
+        if (storedEntry.expiresAt <= now) rateLimits.delete(storedKey);
+      }
+      if (rateLimits.size >= 5000) rateLimits.delete(rateLimits.keys().next().value);
+    }
+    rateLimits.set(key, { count: 1, expiresAt: now + RATE_LIMIT_WINDOW_MS });
+    return { allowed: true };
+  }
+  if (entry.count >= RATE_LIMIT_MAX) {
+    return {
+      allowed: false,
+      retryAfter: Math.max(1, Math.ceil((entry.expiresAt - now) / 1000)),
+    };
+  }
+  entry.count += 1;
+  return { allowed: true };
+}
+
+function rejectGenerateQuota(req, res, stream = false) {
+  const quota = consumeGenerateQuota(req);
+  if (quota.allowed) return false;
+
+  res.setHeader("Retry-After", String(quota.retryAfter));
+  const payload = { type: "error", error: "请求过于频繁，请稍后重试" };
+  if (stream) {
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    res.end();
+  } else {
+    json(res, { ok: false, error: payload.error, retry_after: quota.retryAfter }, 429);
+  }
+  return true;
+}
+
+function quizCacheKey(content, count) {
+  return createHash("sha256")
+    .update(`${DEEPSEEK_MODEL}:${count}:${content}`)
+    .digest("hex");
+}
+
+function getCachedQuiz(key) {
+  const entry = quizCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    quizCache.delete(key);
+    return null;
+  }
+  return entry.questions.map((question) => ({
+    ...question,
+    options: question.options.slice(),
+  }));
+}
+
+function cacheQuiz(key, questions) {
+  if (quizCache.size >= CACHE_MAX_ENTRIES) {
+    const oldest = quizCache.keys().next().value;
+    if (oldest) quizCache.delete(oldest);
+  }
+  quizCache.set(key, {
+    questions: questions.map((question) => ({
+      ...question,
+      options: question.options.slice(),
+    })),
+    expiresAt: Date.now() + CACHE_TTL_MS,
+  });
 }
 
 export default async function handler(req, res) {
@@ -227,14 +319,29 @@ function handleShare(encodedData, isCrawler, requestUrl, res) {
 async function handleLLM(req, res) {
   const t0 = Date.now();
   try {
+    if (rejectGenerateQuota(req, res)) return;
     const body = await readBody(req);
     const { content, count } = body;
     if (!content) return json(res, { ok: false, error: "缺少内容" }, 400);
 
     const n = normalizeQuestionCount(count);
-    const shuffled = await generateQuizQuestions(content, n);
+    const key = quizCacheKey(content, n);
+    const cached = getCachedQuiz(key);
+    if (cached) {
+      return json(res, { ok: true, questions: cached, elapsed_ms: Date.now() - t0, cached: true });
+    }
+
+    const requestId = randomUUID();
+    const shuffled = await generateQuizQuestions(content, n, null, requestId);
+    cacheQuiz(key, shuffled);
     const t1 = Date.now();
-    console.log(`[LLM] generated ${shuffled.length} questions in ${t1 - t0}ms`);
+    console.log(JSON.stringify({
+      event: "quiz_request",
+      request_id: requestId,
+      count: shuffled.length,
+      elapsed_ms: t1 - t0,
+      cached: false,
+    }));
     return json(res, {
       ok: true,
       questions: shuffled,
@@ -253,6 +360,8 @@ async function handleLLMStream(req, res) {
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
 
+  if (rejectGenerateQuota(req, res, true)) return;
+
   const body = await readBody(req);
   const { content, count } = body;
   if (!content) {
@@ -264,21 +373,29 @@ async function handleLLMStream(req, res) {
   let heartbeat = null;
 
   try {
-    // The Vercel-to-DeepSeek streaming bridge could close after the start event
-    // without flushing questions. Keep the browser contract, but use the same
-    // proven non-streaming upstream request as /llm and emit SSE after parsing.
+    // Keep the browser-facing SSE contract while using reliable structured
+    // upstream responses. Completed batches are still emitted immediately.
     res.write(`data: ${JSON.stringify({ type: "start", count: n })}\n\n`);
     heartbeat = setInterval(() => res.write(": keepalive\n\n"), 10000);
 
+    const key = quizCacheKey(content, n);
+    const cached = getCachedQuiz(key);
     let sentCount = 0;
-    await generateQuizQuestions(content, n, (batch) => {
+    const emitBatch = (batch) => {
       batch.forEach((question) => {
         sentCount += 1;
         res.write(
           `data: ${JSON.stringify({ type: "question", question, index: sentCount })}\n\n`
         );
       });
-    });
+    };
+
+    if (cached) {
+      emitBatch(cached);
+    } else {
+      const generated = await generateQuizQuestions(content, n, emitBatch, randomUUID());
+      cacheQuiz(key, generated);
+    }
 
     // Send done event
     res.write(`data: ${JSON.stringify({ type: "done", count: sentCount })}\n\n`);
@@ -296,7 +413,7 @@ function normalizeQuestionCount(count) {
   return Number.isFinite(parsed) ? Math.min(50, Math.max(1, parsed)) : 10;
 }
 
-async function generateQuizQuestions(content, count, onBatch = null) {
+async function generateQuizQuestions(content, count, onBatch = null, requestId = randomUUID()) {
   const batchSizes = [];
   for (let remaining = count; remaining > 0; remaining -= MAX_QUESTIONS_PER_BATCH) {
     batchSizes.push(Math.min(MAX_QUESTIONS_PER_BATCH, remaining));
@@ -312,7 +429,8 @@ async function generateQuizQuestions(content, count, onBatch = null) {
         content,
         batchSizes[batchIndex],
         batchIndex,
-        batchSizes.length
+        batchSizes.length,
+        requestId
       );
       results[batchIndex] = shuffleUntilBalanced(batch);
       if (onBatch) onBatch(results[batchIndex]);
@@ -331,27 +449,39 @@ async function generateQuizQuestions(content, count, onBatch = null) {
   return onBatch ? questions : shuffleUntilBalanced(questions);
 }
 
-async function requestQuestionBatch(content, count, batchIndex, batchCount) {
+async function requestQuestionBatch(content, count, batchIndex, batchCount, requestId) {
   let lastError;
 
   for (let attempt = 1; attempt <= MAX_BATCH_ATTEMPTS; attempt++) {
+    const startedAt = Date.now();
     try {
       const prompt = buildPrompt(content, count, batchIndex, batchCount, attempt);
-      const resp = await fetch("https://api.deepseek.com/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + DEEPSEEK_KEY,
-        },
-        body: JSON.stringify({
-          model: "deepseek-v4-flash",
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.2,
-          max_tokens: 4096,
-          stream: false,
-          response_format: { type: "json_object" },
-        }),
-      });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+      let resp;
+      try {
+        resp = await fetch("https://api.deepseek.com/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + DEEPSEEK_KEY,
+          },
+          body: JSON.stringify({
+            model: DEEPSEEK_MODEL,
+            messages: [{ role: "user", content: prompt }],
+            temperature: 0.2,
+            max_tokens: maxTokensForBatch(count),
+            stream: false,
+            response_format: { type: "json_object" },
+          }),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (error.name === "AbortError") throw createUpstreamError("DeepSeek 请求超时", 504);
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+      }
 
       if (!resp.ok) {
         throw createUpstreamError(`API ${resp.status}`);
@@ -363,9 +493,27 @@ async function requestQuestionBatch(content, count, batchIndex, batchCount) {
       if (questions.length === 0) {
         throw createUpstreamError("有效题目不足");
       }
+      console.log(JSON.stringify({
+        event: "quiz_batch",
+        request_id: requestId,
+        batch: batchIndex + 1,
+        batch_count: batchCount,
+        attempt,
+        elapsed_ms: Date.now() - startedAt,
+        questions: questions.length,
+      }));
       return questions;
     } catch (error) {
       lastError = error;
+      console.warn(JSON.stringify({
+        event: "quiz_batch_error",
+        request_id: requestId,
+        batch: batchIndex + 1,
+        batch_count: batchCount,
+        attempt,
+        elapsed_ms: Date.now() - startedAt,
+        error: error.message,
+      }));
     }
   }
 
@@ -401,8 +549,12 @@ function parseQuestionResponse(rawText) {
 
 function createUpstreamError(message) {
   const error = new Error(message);
-  error.statusCode = 502;
+  error.statusCode = message.includes("超时") ? 504 : 502;
   return error;
+}
+
+function maxTokensForBatch(count) {
+  return Math.min(2400, Math.max(900, count * 320));
 }
 
 // ---- Build prompt ----
@@ -423,7 +575,8 @@ ${content.slice(0, 8000)}
 2.选项长度相近，干扰项有迷惑性
 3.answer下标0-3均匀分布
 4.覆盖不同知识点
-5.只输出JSON`;
+5.解析简洁准确，不超过60字
+6.只输出JSON`;
 }
 
 // ---- LLM: verify answers ----
