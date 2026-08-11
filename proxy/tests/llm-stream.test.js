@@ -174,3 +174,46 @@ test("llm fallback also splits ten questions and returns one JSON response", asy
     globalThis.fetch = originalFetch;
   }
 });
+
+test("llm-stream retries a batch when the model returns invalid JSON", async () => {
+  const originalFetch = globalThis.fetch;
+  let callCount = 0;
+  const questions = Array.from({ length: 5 }, (_, index) => ({
+    cat: "重试",
+    q: `重试第${index + 1}题？`,
+    options: ["选项一", "选项二", "选项三", "选项四"],
+    answer: index % 4,
+    exp: "测试重试",
+  }));
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      callCount += 1;
+      return {
+        choices: [{
+          message: {
+            content: callCount === 1
+              ? "这不是有效 JSON"
+              : JSON.stringify({ questions }),
+          },
+        }],
+      };
+    },
+  });
+
+  try {
+    const req = createRequest({ content: "足够长度的天文知识内容，用于测试 JSON 重试。", count: 5 });
+    const res = createResponse();
+    const result = handler(req, res);
+    req.send();
+    await result;
+
+    const events = parseEvents(res);
+    assert.equal(callCount, 2);
+    assert.equal(events.filter((event) => event.type === "question").length, 5);
+    assert.equal(events.at(-1).type, "done");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

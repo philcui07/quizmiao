@@ -3,6 +3,7 @@
 const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY;
 const MAX_QUESTIONS_PER_BATCH = 5;
 const MAX_CONCURRENT_BATCHES = 2;
+const MAX_BATCH_ATTEMPTS = 2;
 
 // 内存分享存储（Vercel Serverless 实例内共享，低流量下实例存活数分钟到数小时，适合临时分享场景）
 const shareStore = new Map();
@@ -327,65 +328,91 @@ async function generateQuizQuestions(content, count) {
 }
 
 async function requestQuestionBatch(content, count, batchIndex, batchCount) {
-  const prompt = buildPrompt(content, count, batchIndex, batchCount);
-  const resp = await fetch("https://api.deepseek.com/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: "Bearer " + DEEPSEEK_KEY,
-    },
-    body: JSON.stringify({
-      model: "deepseek-v4-flash",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.5,
-      max_tokens: 4096,
-      stream: false,
-    }),
-  });
+  let lastError;
 
-  if (!resp.ok) {
-    const error = new Error(`API ${resp.status}`);
-    error.statusCode = 502;
-    throw error;
+  for (let attempt = 1; attempt <= MAX_BATCH_ATTEMPTS; attempt++) {
+    try {
+      const prompt = buildPrompt(content, count, batchIndex, batchCount, attempt);
+      const resp = await fetch("https://api.deepseek.com/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + DEEPSEEK_KEY,
+        },
+        body: JSON.stringify({
+          model: "deepseek-v4-flash",
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.2,
+          max_tokens: 4096,
+          stream: false,
+          response_format: { type: "json_object" },
+        }),
+      });
+
+      if (!resp.ok) {
+        throw createUpstreamError(`API ${resp.status}`);
+      }
+
+      const data = await resp.json();
+      const text = data.choices?.[0]?.message?.content || "";
+      const questions = parseQuestionResponse(text);
+      if (questions.length === 0) {
+        throw createUpstreamError("有效题目不足");
+      }
+      return questions;
+    } catch (error) {
+      lastError = error;
+    }
   }
 
-  const data = await resp.json();
-  let text = data.choices?.[0]?.message?.content || "";
-  text = text.replace(/```json|```/g, "").trim();
+  throw lastError || createUpstreamError("AI 出题失败");
+}
 
-  const start = text.indexOf("[");
-  const end = text.lastIndexOf("]");
-  if (start >= 0 && end > start) text = text.slice(start, end + 1);
+function parseQuestionResponse(rawText) {
+  const text = rawText.replace(/```json|```/g, "").trim();
+  const candidates = [text];
 
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch (_) {
-    const error = new Error("JSON 解析失败");
-    error.statusCode = 502;
-    throw error;
+  const objectStart = text.indexOf("{");
+  const objectEnd = text.lastIndexOf("}");
+  if (objectStart >= 0 && objectEnd > objectStart) {
+    candidates.push(text.slice(objectStart, objectEnd + 1));
   }
 
-  const questions = validateQuestions(parsed);
-  if (questions.length === 0) {
-    const error = new Error("有效题目不足");
-    error.statusCode = 502;
-    throw error;
+  const arrayStart = text.indexOf("[");
+  const arrayEnd = text.lastIndexOf("]");
+  if (arrayStart >= 0 && arrayEnd > arrayStart) {
+    candidates.push(text.slice(arrayStart, arrayEnd + 1));
   }
-  return questions;
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      const items = Array.isArray(parsed) ? parsed : parsed.questions;
+      if (Array.isArray(items)) return validateQuestions(items);
+    } catch (_) {}
+  }
+
+  throw createUpstreamError("JSON 解析失败");
+}
+
+function createUpstreamError(message) {
+  const error = new Error(message);
+  error.statusCode = 502;
+  return error;
 }
 
 // ---- Build prompt ----
-function buildPrompt(content, n, batchIndex = 0, batchCount = 1) {
+function buildPrompt(content, n, batchIndex = 0, batchCount = 1, attempt = 1) {
   const batchHint = batchCount > 1
     ? `这是第${batchIndex + 1}/${batchCount}批，请侧重与其他批次不同的知识点。`
     : "";
-  return `你是专业出题老师。根据以下内容出${n}道四选一选择题。${batchHint}
+  const retryHint = attempt > 1 ? "上次输出格式错误，这次必须严格遵守JSON格式。" : "";
+  return `你是专业出题老师。根据以下内容出${n}道四选一选择题。${batchHint}${retryHint}
 
 内容：
 ${content.slice(0, 8000)}
 
-输出JSON数组：[{"cat":"分类","q":"题干","options":["A","B","C","D"],"answer":0,"exp":"解析"}]
+输出JSON对象：{"questions":[{"cat":"分类","q":"题干","options":["A","B","C","D"],"answer":0,"exp":"解析"}]}
 
 要求：
 1.先答对再出题：每题答案必须100%正确，题干不含答案字眼
