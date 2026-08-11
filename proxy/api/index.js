@@ -1,6 +1,8 @@
 // Vercel Serverless Function — 拾知猫后端代理
 // 标准 Node.js (req, res) 模式
 const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY;
+const MAX_QUESTIONS_PER_BATCH = 5;
+const MAX_CONCURRENT_BATCHES = 2;
 
 // 内存分享存储（Vercel Serverless 实例内共享，低流量下实例存活数分钟到数小时，适合临时分享场景）
 const shareStore = new Map();
@@ -228,65 +230,17 @@ async function handleLLM(req, res) {
     const { content, count } = body;
     if (!content) return json(res, { ok: false, error: "缺少内容" }, 400);
 
-    const n = count || 10;
-    const prompt = buildPrompt(content, n);
-
+    const n = normalizeQuestionCount(count);
+    const shuffled = await generateQuizQuestions(content, n);
     const t1 = Date.now();
-    const resp = await fetch("https://api.deepseek.com/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + DEEPSEEK_KEY,
-      },
-      body: JSON.stringify({
-        model: "deepseek-v4-flash",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.5,
-        max_tokens: 8192,
-        stream: false,
-      }),
-    });
-    const t2 = Date.now();
-    console.log(`[LLM] API call took ${t2 - t1}ms`);
-
-    if (!resp.ok) {
-      return json(res, { ok: false, error: `API ${resp.status}` }, 502);
-    }
-
-    const data = await resp.json();
-    let text = data.choices?.[0]?.message?.content || "";
-    text = text.replace(/```json|```/g, "").trim();
-
-    const s = text.indexOf("["),
-      e = text.lastIndexOf("]");
-    if (s >= 0 && e > s) text = text.slice(s, e + 1);
-
-    let arr;
-    try {
-      arr = JSON.parse(text);
-    } catch (_) {
-      return json(res, { ok: false, error: "JSON 解析失败" }, 502);
-    }
-
-    if (!Array.isArray(arr) || arr.length < 1) {
-      return json(res, { ok: false, error: "题目数量不足" }, 502);
-    }
-
-    const valid = validateQuestions(arr);
-    if (valid.length < 1) {
-      return json(res, { ok: false, error: "有效题目不足" }, 502);
-    }
-
-    const shuffled = shuffleUntilBalanced(valid);
-    const t3 = Date.now();
-    console.log(`[LLM] parse+validate took ${t3 - t2}ms, total ${t3 - t0}ms`);
+    console.log(`[LLM] generated ${shuffled.length} questions in ${t1 - t0}ms`);
     return json(res, {
       ok: true,
       questions: shuffled,
-      elapsed_ms: t3 - t0,
+      elapsed_ms: t1 - t0,
     });
   } catch (e) {
-    return json(res, { ok: false, error: e.message }, 500);
+    return json(res, { ok: false, error: e.message }, e.statusCode || 500);
   }
 }
 
@@ -305,8 +259,7 @@ async function handleLLMStream(req, res) {
     return res.end();
   }
 
-  const n = count || 10;
-  const prompt = buildPrompt(content, n);
+  const n = normalizeQuestionCount(count);
   let heartbeat = null;
 
   try {
@@ -316,47 +269,7 @@ async function handleLLMStream(req, res) {
     res.write(`data: ${JSON.stringify({ type: "start", count: n })}\n\n`);
     heartbeat = setInterval(() => res.write(": keepalive\n\n"), 10000);
 
-    const resp = await fetch("https://api.deepseek.com/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + DEEPSEEK_KEY,
-      },
-      body: JSON.stringify({
-        model: "deepseek-v4-flash",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.5,
-        max_tokens: 8192,
-        stream: false,
-      }),
-    });
-
-    if (!resp.ok) {
-      res.write(`data: ${JSON.stringify({ type: "error", error: `API ${resp.status}` })}\n\n`);
-      return res.end();
-    }
-
-    const data = await resp.json();
-    let text = data.choices?.[0]?.message?.content || "";
-    text = text.replace(/```json|```/g, "").trim();
-
-    const start = text.indexOf("[");
-    const end = text.lastIndexOf("]");
-    if (start >= 0 && end > start) text = text.slice(start, end + 1);
-
-    let parsed;
-    try {
-      parsed = JSON.parse(text);
-    } catch (_) {
-      res.write(`data: ${JSON.stringify({ type: "error", error: "JSON 解析失败" })}\n\n`);
-      return res.end();
-    }
-
-    const questions = shuffleUntilBalanced(validateQuestions(parsed));
-    if (questions.length === 0) {
-      res.write(`data: ${JSON.stringify({ type: "error", error: "有效题目不足" })}\n\n`);
-      return res.end();
-    }
+    const questions = await generateQuizQuestions(content, n);
 
     questions.forEach((question, index) => {
       res.write(
@@ -375,9 +288,99 @@ async function handleLLMStream(req, res) {
   }
 }
 
+function normalizeQuestionCount(count) {
+  const parsed = Number.parseInt(count, 10);
+  return Number.isFinite(parsed) ? Math.min(50, Math.max(1, parsed)) : 10;
+}
+
+async function generateQuizQuestions(content, count) {
+  const batchSizes = [];
+  for (let remaining = count; remaining > 0; remaining -= MAX_QUESTIONS_PER_BATCH) {
+    batchSizes.push(Math.min(MAX_QUESTIONS_PER_BATCH, remaining));
+  }
+
+  const results = new Array(batchSizes.length);
+  let nextBatch = 0;
+
+  async function runWorker() {
+    while (nextBatch < batchSizes.length) {
+      const batchIndex = nextBatch++;
+      results[batchIndex] = await requestQuestionBatch(
+        content,
+        batchSizes[batchIndex],
+        batchIndex,
+        batchSizes.length
+      );
+    }
+  }
+
+  const workerCount = Math.min(MAX_CONCURRENT_BATCHES, batchSizes.length);
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+
+  const questions = validateQuestions(results.flat()).slice(0, count);
+  if (questions.length === 0) {
+    const error = new Error("有效题目不足");
+    error.statusCode = 502;
+    throw error;
+  }
+  return shuffleUntilBalanced(questions);
+}
+
+async function requestQuestionBatch(content, count, batchIndex, batchCount) {
+  const prompt = buildPrompt(content, count, batchIndex, batchCount);
+  const resp = await fetch("https://api.deepseek.com/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + DEEPSEEK_KEY,
+    },
+    body: JSON.stringify({
+      model: "deepseek-v4-flash",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.5,
+      max_tokens: 4096,
+      stream: false,
+    }),
+  });
+
+  if (!resp.ok) {
+    const error = new Error(`API ${resp.status}`);
+    error.statusCode = 502;
+    throw error;
+  }
+
+  const data = await resp.json();
+  let text = data.choices?.[0]?.message?.content || "";
+  text = text.replace(/```json|```/g, "").trim();
+
+  const start = text.indexOf("[");
+  const end = text.lastIndexOf("]");
+  if (start >= 0 && end > start) text = text.slice(start, end + 1);
+
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (_) {
+    const error = new Error("JSON 解析失败");
+    error.statusCode = 502;
+    throw error;
+  }
+
+  const questions = validateQuestions(parsed);
+  if (questions.length === 0) {
+    const error = new Error("有效题目不足");
+    error.statusCode = 502;
+    throw error;
+  }
+  return questions;
+}
+
 // ---- Build prompt ----
-function buildPrompt(content, n) {
-  return `你是专业出题老师。根据以下内容出${n}道四选一选择题。
+function buildPrompt(content, n, batchIndex = 0, batchCount = 1) {
+  const batchHint = batchCount > 1
+    ? `这是第${batchIndex + 1}/${batchCount}批，请侧重与其他批次不同的知识点。`
+    : "";
+  return `你是专业出题老师。根据以下内容出${n}道四选一选择题。${batchHint}
 
 内容：
 ${content.slice(0, 8000)}

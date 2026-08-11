@@ -4,10 +4,10 @@ import { EventEmitter } from "node:events";
 
 import handler from "../api/index.js";
 
-function createRequest(body) {
+function createRequest(body, url = "/llm-stream") {
   const req = new EventEmitter();
   req.method = "POST";
-  req.url = "/llm-stream";
+  req.url = url;
   req.headers = { host: "localhost" };
   req.send = () => {
     req.emit("data", JSON.stringify(body));
@@ -87,6 +87,89 @@ test("llm-stream emits start, validated questions, and done from a non-streaming
     assert.equal(events[0].count, 2);
     assert.equal(events[3].count, 2);
     assert.equal(events[1].question.options.length, 4);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("llm-stream splits ten questions into two five-question DeepSeek calls", async () => {
+  const originalFetch = globalThis.fetch;
+  let callCount = 0;
+
+  globalThis.fetch = async (_url, options) => {
+    const payload = JSON.parse(options.body);
+    assert.equal(payload.stream, false);
+    assert.match(payload.messages[0].content, /出5道四选一选择题/);
+
+    const batch = ++callCount;
+    const questions = Array.from({ length: 5 }, (_, index) => ({
+      cat: `批次${batch}`,
+      q: `第${batch}批第${index + 1}题？`,
+      options: ["选项一", "选项二", "选项三", "选项四"],
+      answer: index % 4,
+      exp: "测试解析",
+    }));
+
+    return {
+      ok: true,
+      async json() {
+        return { choices: [{ message: { content: JSON.stringify(questions) } }] };
+      },
+    };
+  };
+
+  try {
+    const req = createRequest({ content: "足够长度的天文知识内容，用于生成十道测试题目。", count: 10 });
+    const res = createResponse();
+    const result = handler(req, res);
+    req.send();
+    await result;
+
+    const events = parseEvents(res);
+    assert.equal(callCount, 2);
+    assert.equal(events.filter((event) => event.type === "question").length, 10);
+    assert.equal(events.at(-1).type, "done");
+    assert.equal(events.at(-1).count, 10);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("llm fallback also splits ten questions and returns one JSON response", async () => {
+  const originalFetch = globalThis.fetch;
+  let callCount = 0;
+
+  globalThis.fetch = async () => {
+    const batch = ++callCount;
+    const questions = Array.from({ length: 5 }, (_, index) => ({
+      cat: `批次${batch}`,
+      q: `降级路径第${batch}批第${index + 1}题？`,
+      options: ["选项一", "选项二", "选项三", "选项四"],
+      answer: index % 4,
+      exp: "测试降级路径",
+    }));
+    return {
+      ok: true,
+      async json() {
+        return { choices: [{ message: { content: JSON.stringify(questions) } }] };
+      },
+    };
+  };
+
+  try {
+    const req = createRequest(
+      { content: "足够长度的天文知识内容，用于测试非流式降级路径。", count: 10 },
+      "/llm"
+    );
+    const res = createResponse();
+    const result = handler(req, res);
+    req.send();
+    await result;
+
+    assert.equal(callCount, 2);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.questions.length, 10);
   } finally {
     globalThis.fetch = originalFetch;
   }
