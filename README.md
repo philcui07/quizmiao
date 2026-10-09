@@ -1,25 +1,29 @@
-# 拾知猫 Web
+# 拾知猫 QuizMiao
 
-当前开发版本：`v1.1.1-dev`
+AI 学习练习工具：输入文本或网页链接，生成选择题，支持练习、错题、题集历史及好友分享。
 
-## 目录
+本仓库的完整代码交接基线位于 `codex/cloud-handoff-2026-10-09`。请先阅读 [handoff.md](handoff.md)。既有版本分支保留原来的 Web 根目录结构。
 
-- `docs/`：CloudBase 静态托管前端与产品文档。
-- `cloudbase/`：CloudBase 配置、云函数和部署手册。
-- `tests/`：无需外部依赖的前端状态测试。
-- `proxy/`：冻结的 v1.0.1 Vercel 迁移参考，不属于 v1.1.0 运行链路。
+| 目录 | 内容 |
+|---|---|
+| `web/docs/` | Web 静态前端、产品文档 |
+| `web/cloudbase/` | Web CloudBase 云函数、部署配置 |
+| `web/proxy/` | Vercel 代理；仍被当前 Miniapp 云函数调用 |
+| `miniapp/miniprogram/` | 微信小程序前端 |
+| `miniapp/cloudfunctions/proxy/` | 小程序云函数代理、账号、历史和分享 |
+| `web/tests/`、`miniapp/tests/` | 现有回归测试 |
 
-## 本地检查
+## 本地预览与检查
+
+使用 Node.js 24（迁移基线实测 24.19.0）与 Python 3：
 
 ```bash
-node --test tests/frontend-state.test.js
-find docs cloudbase -name '*.js' -not -path '*/node_modules/*' -exec node --check {} \;
+node --test web/tests/*.test.js miniapp/tests/*.test.js
+python3 -m http.server 8000 --directory web/docs
 ```
 
-静态页面从 `docs/` 启动本地 HTTP 服务后访问。账号、运营商认证、历史和分享联调需要按 `cloudbase/DEPLOYMENT.md` 配置 CloudBase 环境。
+浏览器访问 `http://localhost:8000`。真实后端联调还需 CloudBase 安全域名与云函数配置。
 
-## 版本规则
+微信开发者工具导入 `miniapp/`；本地私有配置不提交。运行与部署细节见 [Web 部署手册](web/cloudbase/DEPLOYMENT.md) 和 [Miniapp 部署指南](miniapp/DEPLOY_GUIDE.md)。
 
-- `v1.0.1` 已冻结，不再修改。
-- 当前功能提交到 `v1.1.1-dev`。
-- Web 完成验收后再进入 Miniapp `v1.1.0-dev` 开发。
+本次迁移不构成上线验收，测试边界见交接文件。

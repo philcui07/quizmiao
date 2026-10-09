@@ -1,0 +1,33 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/confirm/confirm",
+    "pages/practice/practice",
+    "pages/result/result",
+    "pages/history/history",
+    "pages/history-detail/history-detail",
+    "pages/record-detail/record-detail",
+    "pages/profile/profile"
+  ],
+  "window": {
+    "navigationBarBackgroundColor": "#07C160",
+    "navigationBarTitleText": "拾知猫",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#F6F6F6",
+    "backgroundTextStyle": "light"
+  },
+  "style": "v2",
+  "tabBar": {
+    "color": "#999999",
+    "selectedColor": "#07C160",
+    "backgroundColor": "#FFFFFF",
+    "borderStyle": "black",
+    "position": "bottom",
+    "list": [
+      { "pagePath": "pages/index/index", "text": "首页", "iconPath": "assets/tabbar/home.png", "selectedIconPath": "assets/tabbar/home-active.png" },
+      { "pagePath": "pages/history/history", "text": "历史", "iconPath": "assets/tabbar/history.png", "selectedIconPath": "assets/tabbar/history-active.png" },
+      { "pagePath": "pages/profile/profile", "text": "我的", "iconPath": "assets/tabbar/profile.png", "selectedIconPath": "assets/tabbar/profile-active.png" }
+    ]
+  },
+  "sitemapLocation": "sitemap.json"
+}

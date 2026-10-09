@@ -4,10 +4,15 @@
 const crypto = require("crypto");
 const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
-const MAX_QUESTIONS_PER_BATCH = envInt("QUIZ_BATCH_SIZE", 2, 1, 5);
+const MAX_INPUT_CHARS = 16000;
+const CANDIDATE_RATIO = 1.5;
+const MAX_QUESTIONS_PER_BATCH = envInt("QUIZ_BATCH_SIZE", 6, 2, 10);
 const MAX_CONCURRENT_BATCHES = envInt("QUIZ_BATCH_CONCURRENCY", 5, 1, 10);
 const MAX_BATCH_ATTEMPTS = envInt("QUIZ_BATCH_ATTEMPTS", 2, 1, 2);
 const UPSTREAM_TIMEOUT_MS = envInt("QUIZ_UPSTREAM_TIMEOUT_MS", 10000, 4000, 20000);
+const GENERATE_TARGET_MS = envInt("QUIZ_GENERATE_TARGET_MS", 10000, 5000, 20000);
+const DEDUPE_REVIEW_TIMEOUT_MS = envInt("QUIZ_DEDUPE_TIMEOUT_MS", 2200, 500, 5000);
+const DEDUPE_REVIEW_MIN_BUDGET_MS = 500;
 const CACHE_TTL_MS = envInt("QUIZ_CACHE_TTL_MS", 10 * 60 * 1000, 60000, 60 * 60 * 1000);
 const CACHE_MAX_ENTRIES = envInt("QUIZ_CACHE_MAX_ENTRIES", 100, 10, 500);
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
@@ -127,10 +132,9 @@ function cacheQuiz(key, questions) {
 }
 
 async function generateQuizQuestions(content, count, requestId) {
-  const batchSizes = [];
-  for (let remaining = count; remaining > 0; remaining -= MAX_QUESTIONS_PER_BATCH) {
-    batchSizes.push(Math.min(MAX_QUESTIONS_PER_BATCH, remaining));
-  }
+  const startedAt = Date.now();
+  const candidateCount = Math.ceil(count * CANDIDATE_RATIO);
+  const batchSizes = buildCandidateBatchSizes(candidateCount);
 
   const results = new Array(batchSizes.length);
   let nextBatch = 0;
@@ -138,7 +142,7 @@ async function generateQuizQuestions(content, count, requestId) {
     while (nextBatch < batchSizes.length) {
       const batchIndex = nextBatch++;
       results[batchIndex] = await requestQuestionBatch(
-        content,
+        selectBatchContent(content, batchIndex, batchSizes.length),
         batchSizes[batchIndex],
         batchIndex,
         batchSizes.length,
@@ -149,9 +153,25 @@ async function generateQuizQuestions(content, count, requestId) {
 
   const workerCount = Math.min(MAX_CONCURRENT_BATCHES, batchSizes.length);
   await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
-  const questions = validateQuestions(results.flat()).slice(0, count);
+  const candidates = dedupeExactQuestions(validateQuestions(results.flat()));
+  const reviewed = await reviewDuplicateQuestionsWithinBudget(candidates, {
+    requestId,
+    startedAt,
+    batchCount: batchSizes.length,
+    targetCount: count,
+  });
+  const questions = reviewed.slice(0, count);
   if (questions.length === 0) throw new Error("有效题目不足");
   return shuffleUntilBalanced(questions);
+}
+
+function buildCandidateBatchSizes(candidateCount) {
+  const minimumBatches = Math.ceil(candidateCount / MAX_QUESTIONS_PER_BATCH);
+  const preferredBatches = Math.min(MAX_CONCURRENT_BATCHES, candidateCount);
+  const batchCount = Math.max(minimumBatches, preferredBatches);
+  const baseSize = Math.floor(candidateCount / batchCount);
+  const largerBatches = candidateCount % batchCount;
+  return Array.from({ length: batchCount }, (_, index) => baseSize + (index < largerBatches ? 1 : 0));
 }
 
 async function requestQuestionBatch(content, count, batchIndex, batchCount, requestId) {
@@ -332,12 +352,14 @@ ${questionList}
 
 // ---- Prompt 构建 ----
 function buildPrompt(content, n, batchIndex = 0, batchCount = 1, attempt = 1) {
-  const batchHint = batchCount > 1 ? `这是第${batchIndex + 1}/${batchCount}批，请侧重不同知识点。` : "";
+  const batchHint = batchCount > 1
+    ? `这是第${batchIndex + 1}/${batchCount}批，只根据下面分配到的内容区域取材，每题考查不同事实维度。`
+    : "";
   const retryHint = attempt > 1 ? "上次输出格式错误，这次必须严格遵守 JSON。" : "";
   return `你是专业出题老师。根据以下内容出${n}道四选一选择题。${batchHint}${retryHint}
 
 内容：
-${content.slice(0, 8000)}
+${content.slice(0, MAX_INPUT_CHARS)}
 
 输出严格 JSON 对象：{"questions":[{"cat":"分类","q":"题干","options":["A","B","C","D"],"answer":0,"exp":"解析"}]}
 
@@ -346,8 +368,168 @@ ${content.slice(0, 8000)}
 2.选项长度相近，干扰项有迷惑性
 3.answer下标0-3均匀分布
 4.覆盖不同知识点
-5.解析简洁准确，不超过60字
-6.只输出 JSON 对象，不要 Markdown、解释或代码块`;
+5.先识别内容中的编号条目、知识点标题和易错点；素材足够时，每道题必须来自不同条目或不同子知识点，不得反复选择最显眼的条目
+6.优先改写为新的应用场景，不要直接照抄原文易错题和例句
+7.cat 必须填写具体知识点名称，例如“must否定回答”，不要只写“语法”“词汇”
+8.同一批内，只有“考查问题”和“正确结论”都实质相同时才算重复；仅知识分类、涉及对象、来源段落或正确答案相同，不算重复
+9.同一知识点的事实、原因、优缺点、比较、流程识别、场景应用是不同考法，应当保留
+10.解析简洁准确，不超过60字
+11.只输出 JSON 对象，不要 Markdown、解释或代码块`;
+}
+
+function selectBatchContent(content, batchIndex, batchCount) {
+  const text = String(content || "").slice(0, MAX_INPUT_CHARS);
+  if (batchCount <= 1 || text.length < batchCount * 400) return text;
+  const numberedSections = splitNumberedKnowledgeSections(text, batchCount);
+  if (numberedSections) return numberedSections[batchIndex];
+  const boundaries = [0];
+  for (let index = 1; index < batchCount; index++) {
+    const ideal = Math.floor(text.length * index / batchCount);
+    const before = text.lastIndexOf("\n", ideal);
+    const after = text.indexOf("\n", ideal);
+    const candidates = [before, after].filter((value) => value > boundaries[boundaries.length - 1]);
+    const nearest = candidates.sort((a, b) => Math.abs(a - ideal) - Math.abs(b - ideal))[0];
+    boundaries.push(Number.isInteger(nearest) && Math.abs(nearest - ideal) <= 300 ? nearest : ideal);
+  }
+  boundaries.push(text.length);
+  return text.slice(boundaries[batchIndex], boundaries[batchIndex + 1]).trim();
+}
+
+function splitNumberedKnowledgeSections(text, batchCount) {
+  const matches = [...text.matchAll(/^\s*\d+\.\s+\S.*$/gm)];
+  if (matches.length < batchCount) return null;
+  const blocks = matches.map((match, index) => {
+    const start = index === 0 ? 0 : match.index;
+    const end = index + 1 < matches.length ? matches[index + 1].index : text.length;
+    return text.slice(start, end).trim();
+  });
+  const baseSize = Math.floor(blocks.length / batchCount);
+  const largerGroups = blocks.length % batchCount;
+  const sections = [];
+  let cursor = 0;
+  for (let index = 0; index < batchCount; index++) {
+    const size = baseSize + (index < largerGroups ? 1 : 0);
+    sections.push(blocks.slice(cursor, cursor + size).join("\n\n"));
+    cursor += size;
+  }
+  return sections;
+}
+
+function normalizeQuestionText(value) {
+  return String(value || "").toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
+}
+
+function dedupeExactQuestions(questions) {
+  const seen = new Set();
+  return (questions || []).filter((question) => {
+    const key = normalizeQuestionText(question.q);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function buildDedupeReviewPrompt(questions) {
+  const summaries = questions.map((question, index) => ({
+    index: index + 1,
+    category: question.cat,
+    question: question.q,
+    correct_answer: question.options[question.answer],
+  }));
+  return `你是选择题查重审核员。审核下面的候选题，只返回有充分证据的重复题组。
+
+候选题：
+${JSON.stringify(summaries)}
+
+严格判定规则：
+1. 只有两题的“考查问题”和“正确结论”都实质相同，才删除后出现的一题。
+2. 不得因为知识分类相同、对象相同、来自同一段、正确选项文字相同，就判为重复。
+3. 同一知识点的不同事实维度、原因、优缺点、比较关系、流程识别、场景应用或判断方式，应当保留。
+4. 正反问、换词或改变句式，但仍要求识别同一个事实，属于重复。
+5. 例：多个“哪种范式是黄金标准”是重复；多个“既是黄金标准又与机器人强绑定”是重复。
+6. 例：“根据描述识别动作表示对齐”与“动作表示对齐解决什么问题”不是重复；答案都是“真机遥操作”，但一题问黄金标准、另一题问数据孤岛，也不是重复。
+7. 例：“为何不能从互联网获取”与“哪项不是其特征（可轻易从互联网获取）”属于重复；“动作表示对齐的目的”与“它解决什么问题”属于重复。
+
+重复组内第一个编号为应保留题，其余编号为可删除的重复题。没有重复时返回空数组。
+输出严格 JSON 对象：{"duplicate_groups":[[2,14],[8,15]]}。不要输出保留编号，不要解释。`;
+}
+
+function applyDuplicateGroups(questions, groups, targetCount) {
+  const removableBudget = Math.max(0, questions.length - targetCount);
+  if (removableBudget === 0) return questions;
+  const removed = new Set();
+  for (const group of Array.isArray(groups) ? groups : []) {
+    const indexes = [...new Set((Array.isArray(group) ? group : [])
+      .filter((index) => Number.isInteger(index) && index >= 1 && index <= questions.length))];
+    if (indexes.length < 2) continue;
+    for (const index of indexes.slice(1)) {
+      if (removed.size >= removableBudget) break;
+      removed.add(index - 1);
+    }
+    if (removed.size >= removableBudget) break;
+  }
+  return questions.filter((_, index) => !removed.has(index));
+}
+
+async function reviewDuplicateQuestionsWithinBudget(questions, meta) {
+  if (questions.length < 2 || meta.batchCount < 2) return questions;
+  const elapsed = Date.now() - meta.startedAt;
+  const remaining = GENERATE_TARGET_MS - elapsed - 250;
+  if (remaining < DEDUPE_REVIEW_MIN_BUDGET_MS) {
+    console.log(JSON.stringify({
+      event: "quiz_dedupe_skipped",
+      request_id: meta.requestId,
+      reason: "latency_budget",
+      elapsed_ms: elapsed,
+    }));
+    return questions;
+  }
+
+  const timeoutMs = Math.min(DEDUPE_REVIEW_TIMEOUT_MS, remaining);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const startedAt = Date.now();
+  try {
+    const resp = await fetch("https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + DEEPSEEK_KEY,
+      },
+      body: JSON.stringify({
+        model: DEEPSEEK_MODEL,
+        messages: [{ role: "user", content: buildDedupeReviewPrompt(questions) }],
+        temperature: 0,
+        max_tokens: 500,
+        response_format: { type: "json_object" },
+        stream: false,
+      }),
+      signal: controller.signal,
+    });
+    if (!resp.ok) throw new Error(`DeepSeek 查重 API ${resp.status || 502}`);
+    const data = await resp.json();
+    const parsed = JSON.parse(String(data.choices?.[0]?.message?.content || "{}")
+      .replace(/^```(?:json)?\s*|\s*```$/gi, ""));
+    const reviewed = applyDuplicateGroups(questions, parsed.duplicate_groups, meta.targetCount);
+    console.log(JSON.stringify({
+      event: "quiz_dedupe",
+      request_id: meta.requestId,
+      elapsed_ms: Date.now() - startedAt,
+      before: questions.length,
+      after: reviewed.length,
+    }));
+    return reviewed;
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: "quiz_dedupe_fallback",
+      request_id: meta.requestId,
+      elapsed_ms: Date.now() - startedAt,
+      error: error.name === "AbortError" ? "timeout" : error.message,
+    }));
+    return questions;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function parseQuestions(content) {

@@ -1,0 +1,20 @@
+<view class="record-status" wx:if="{{loading}}">正在加载...</view>
+<view class="record-status record-error" wx:elif="{{error}}">{{error}}</view>
+
+<view wx:if="{{!loading && !error && record}}">
+  <view class="card record-summary">
+    <view class="record-title">{{title}}</view>
+    <view class="record-date">{{record.dateText}}</view>
+    <view class="record-score">{{record.score}}/{{record.total}}<text>{{record.scorePct}}%</text></view>
+    <view class="record-meta">答对 {{record.score}} 题 · 答错 {{record.wrongCount}} 题</view>
+  </view>
+
+  <view class="section-hint">错题详情</view>
+  <view class="wrong-card" wx:for="{{record.wrongAnswers}}" wx:key="index">
+    <view class="wrong-title">{{index + 1}}. [{{item.cat}}] {{item.q}}</view>
+    <view>作答：<text class="wrong-answer">{{item.picked}}</text></view>
+    <view>正确：<text class="correct-answer">{{item.correct}}</text></view>
+    <view class="explanation">{{item.exp}}</view>
+  </view>
+  <view class="perfect-state" wx:if="{{record.wrongCount === 0}}">本次全部答对</view>
+</view>

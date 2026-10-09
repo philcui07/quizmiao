@@ -1,0 +1,60 @@
+<view class="card index-card">
+  <view class="section-title">📝 输入知识内容</view>
+  <view class="section-desc">粘贴文本或多个链接，AI 自动生成练习题</view>
+
+  <!-- Tab 切换 -->
+  <view class="input-tabs">
+    <view class="input-tab {{inputTab==='text'?'active':''}}" bindtap="switchTab" data-tab="text">📋 文本</view>
+    <view class="input-tab {{inputTab==='urls'?'active':''}}" bindtap="switchTab" data-tab="urls">🔗 链接</view>
+  </view>
+
+  <!-- 文本输入 -->
+  <view hidden="{{inputTab!=='text'}}">
+    <view class="manual-input-shell">
+      <textarea
+        class="manual-input-area"
+        placeholder="在此粘贴知识点内容，例如：单词表、语法规则、数学公式等"
+        bindinput="onManualInput"
+        maxlength="{{inputMaxLength}}"
+        disable-default-padding="{{true}}"
+        show-confirm-bar="{{false}}"
+        cursor-spacing="20"
+      />
+    </view>
+    <view class="input-counter">{{manualTextLength}} / {{inputMaxLength}} 字</view>
+  </view>
+
+  <!-- 多链接输入 -->
+  <view hidden="{{inputTab!=='urls'}}">
+    <view class="url-row" wx:for="{{urls}}" wx:key="index">
+      <input
+        class="input-area input-inline"
+        placeholder="https://..."
+        bindinput="onUrlInput"
+        data-idx="{{index}}"
+        value="{{item}}"
+      />
+      <view class="url-del" wx:if="{{urls.length>1}}" bindtap="removeUrl" data-idx="{{index}}">×</view>
+    </view>
+    <button class="btn btn-outline btn-sm" bindtap="addUrl" style="margin-top:4px;">+ 添加链接</button>
+    <view class="msg msg-info" style="margin-top:8px;">💡 支持多个网页链接，逐个抓取后合并出题。静态网页效果最佳。</view>
+  </view>
+
+  <!-- 操作区 -->
+  <view class="action-row">
+    <button class="btn btn-primary" bindtap="startGenerate" loading="{{generating}}" disabled="{{generating}}">
+      {{generating ? '生成中...' : '生成练习题'}}
+    </button>
+    <view class="qty-row">
+      <text class="qty-label">题数</text>
+      <picker range="{{qtyOptions}}" value="{{qtyIndex}}" bindchange="onQtyChange">
+        <view class="qty-picker">{{qtyDisplay}}</view>
+      </picker>
+    </view>
+  </view>
+
+  <!-- 错误信息 -->
+  <view wx:if="{{errorMsg}}" class="msg msg-error">{{errorMsg}}</view>
+</view>
+
+<view class="footer-text">拾知猫 · v1.1.0</view>

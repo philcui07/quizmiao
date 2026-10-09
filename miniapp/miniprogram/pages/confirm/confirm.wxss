@@ -1,0 +1,105 @@
+.section-title { font-size: 18px; font-weight: 700; }
+.tags-row { margin-top: 8px; }
+
+/* 标题行内 spinner */
+.section-title-loading {
+  display: flex; align-items: center; gap: 8px;
+}
+.inline-spinner {
+  display: inline-flex; align-items: center; gap: 4px;
+  width: auto; margin: 0;
+}
+.loading-sub {
+  font-size: 12px; color: var(--text3); margin-top: 6px;
+}
+
+.top-actions { padding: 0 16px; margin-bottom: 14px; }
+
+.qconf-list { padding: 0 16px; padding-bottom: 80px; }
+.qconf-card {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: 8px; padding: 14px; margin-bottom: 10px; position: relative;
+}
+.qconf-q { font-size: 14px; font-weight: 600; margin-bottom: 6px; padding-right: 30px; }
+.qconf-opts { font-size: 12px; color: var(--text3); }
+.qconf-ans { font-size: 12px; color: var(--primary-d); margin-top: 4px; }
+.qconf-del {
+  position: absolute; right: 10px; top: 10px;
+  width: 24px; height: 24px; border-radius: 50%;
+  background: var(--line2); display: flex;
+  align-items: center; justify-content: center;
+  font-size: 14px; color: var(--text3);
+}
+.qconf-del:active { background: #FFE0E0; color: var(--danger); }
+
+/* 流式逐题动画 */
+.qconf-card-enter {
+  animation: cardFadeSlideIn 0.35s ease-out both;
+}
+@keyframes cardFadeSlideIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+/* 延迟：每张卡间隔 */
+.qconf-card-enter:nth-child(1)  { animation-delay: 0.00s; }
+.qconf-card-enter:nth-child(2)  { animation-delay: 0.08s; }
+.qconf-card-enter:nth-child(3)  { animation-delay: 0.16s; }
+.qconf-card-enter:nth-child(4)  { animation-delay: 0.24s; }
+.qconf-card-enter:nth-child(5)  { animation-delay: 0.32s; }
+.qconf-card-enter:nth-child(6)  { animation-delay: 0.40s; }
+.qconf-card-enter:nth-child(7)  { animation-delay: 0.48s; }
+.qconf-card-enter:nth-child(8)  { animation-delay: 0.56s; }
+.qconf-card-enter:nth-child(9)  { animation-delay: 0.64s; }
+.qconf-card-enter:nth-child(10) { animation-delay: 0.72s; }
+
+/* 进度条 */
+.confirm-progress {
+  background: var(--line2); height: 4px; border-radius: 2px;
+  margin-top: 10px; overflow: hidden;
+}
+.confirm-progress-bar {
+  height: 100%; background: var(--primary);
+  border-radius: 2px; transition: width 0.3s ease;
+  width: 0%;
+}
+
+/* 错误状态 */
+.confirm-error {
+  text-align: center; padding: 32px 20px;
+}
+.confirm-error .error-text {
+  font-size: 14px; color: var(--danger); margin-bottom: 8px;
+  line-height: 1.6;
+}
+
+/* 底部栏：大按钮 + 扁平图标按钮 */
+.bottom-bar .btn-flex {
+  flex: 1; font-size: 16px; font-weight: 700;
+}
+.bottom-bar .btn-icon {
+  width: 48px; min-height: 48px; padding: 0;
+  font-size: 0; border-radius: 8px;
+  background-color: var(--card);
+  border: 1px solid var(--primary); flex-shrink: 0;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 22px 22px;
+}
+.bottom-bar .btn-icon::after { border: none; }
+.bottom-bar .btn-icon:active { background-color: #F0FFF4; }
+.bottom-bar .btn-icon[disabled] {
+  opacity: 0.4;
+}
+
+/* 分享 — Feather 风格扁平线条图标 */
+.icon-share {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2307C160' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8'/%3E%3Cpolyline points='16 6 12 2 8 6'/%3E%3Cline x1='12' y1='2' x2='12' y2='15'/%3E%3C/svg%3E");
+}
+/* 刷新 — Feather 风格扁平线条图标 */
+.icon-refresh {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2307C160' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='23 4 23 10 17 10'/%3E%3Cpath d='M20.49 15a9 9 0 1 1-2.12-9.36L23 10'/%3E%3C/svg%3E");
+}
+
+.share-ready-bar { position: fixed; left: 16px; right: 16px; bottom: calc(76px + env(safe-area-inset-bottom)); z-index: 120; max-width: 468px; margin: 0 auto; padding: 10px 12px; border-radius: 12px; background: var(--card); box-shadow: 0 4px 20px rgba(0,0,0,.14); display: flex; align-items: center; gap: 10px; }
+.share-ready-copy { flex: 1; color: var(--primary-d); font-size: 12px; }
+.share-now { margin: 0; min-height: 40px; padding: 8px 14px; font-size: 13px; }

@@ -1,0 +1,36 @@
+<view class="history-status" wx:if="{{loading}}">正在加载...</view>
+<view class="history-status history-error" wx:elif="{{error}}">{{error}}</view>
+
+<view class="history-detail" wx:if="{{!loading && !error && detail}}">
+  <view class="card history-detail-head">
+    <view class="section-title history-detail-title">{{detail.title || detail.name}}</view>
+    <view class="history-date">{{detail.dateText}}</view>
+    <view class="detail-meta" wx:if="{{detailType === 'quiz'}}">{{detail.questions.length}} 道题 · 已练习 {{detail.practiceCount}} 次</view>
+    <view class="detail-meta" wx:else>{{detail.questions.length}} 道题 · 收到 {{detail.records.length}} 次答题</view>
+    <view class="history-actions" wx:if="{{detailType === 'quiz'}}">
+      <button class="btn btn-primary" bindtap="replay">↻ 重新练习</button>
+      <button class="btn btn-outline" open-type="share" disabled="{{!shareReady}}">↗ 分享题集</button>
+    </view>
+  </view>
+
+  <view class="section-hint">{{detailType === 'quiz' ? '练习记录' : '好友答题记录'}}</view>
+  <view class="attempt-card" hover-class="attempt-card-active" wx:for="{{detail.records}}" wx:key="id" data-index="{{index}}" bindtap="openRecord">
+    <view class="attempt-summary">
+      <view class="attempt-person">
+        <view class="history-title">{{item.titleText}}</view>
+        <view class="history-date">{{item.dateText}}</view>
+      </view>
+      <view class="attempt-score">{{item.score}}/{{item.total}}<text>{{item.scorePct}}% · 错 {{item.wrongCount}} 题</text></view>
+      <view class="record-chevron">›</view>
+    </view>
+  </view>
+  <view class="empty-state compact" wx:if="{{!detail.records.length}}">暂无答题记录</view>
+
+  <view class="section-hint">题目列表</view>
+  <view class="qconf-list history-question-list">
+    <view class="history-question" wx:for="{{detail.questions}}" wx:key="index">
+      <view class="history-question-title">{{index + 1}}. [{{item.cat}}] {{item.q}}</view>
+      <view class="history-answer">答案：{{['A','B','C','D'][item.answer]}}. {{item.options[item.answer]}}</view>
+    </view>
+  </view>
+</view>

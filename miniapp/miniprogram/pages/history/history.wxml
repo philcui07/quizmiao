@@ -1,0 +1,76 @@
+<view class="history-initializing" wx:if="{{!pageReady}}">正在读取历史记录...</view>
+<view class="card history-login" wx:elif="{{!user}}">
+  <view class="login-brand">拾</view>
+  <view class="history-login-title">登录后查看历史</view>
+  <view class="history-login-desc">题集、练习成绩和好友答题记录会统一归档在账号下。</view>
+  <button class="btn btn-primary btn-block" bindtap="openLoginModal">手机号登录</button>
+</view>
+
+<block wx:elif="{{pageReady}}">
+  <view class="card history-head">
+    <view class="section-title">历史记录</view>
+    <view class="section-desc">题集与分享答题统一归档在账号下</view>
+    <view class="history-tabs">
+      <view class="history-tab {{tab === 'quizzes' ? 'active' : ''}}" data-tab="quizzes" bindtap="switchTab">我的题集</view>
+      <view class="history-tab {{tab === 'shares' ? 'active' : ''}}" data-tab="shares" bindtap="switchTab">我的分享</view>
+    </view>
+  </view>
+
+  <view class="history-status" wx:if="{{loading}}">正在加载...</view>
+  <view class="history-status history-error" wx:elif="{{error}}">{{error}}</view>
+
+  <block wx:if="{{!loading && !error}}">
+    <block wx:if="{{tab === 'quizzes'}}">
+      <view class="history-list" wx:if="{{hasQuizzes}}">
+        <view class="history-card" hover-class="history-card-active" wx:for="{{quizzes}}" wx:key="id" data-id="{{item.id}}" bindtap="openQuiz">
+          <view class="history-card-header">
+            <view class="history-title">{{item.title}}</view>
+            <text class="tag tag-self">题集</text>
+          </view>
+          <view class="history-stats">
+            <text>{{item.questionCount}} 道题</text>
+            <text>练习 {{item.practiceCount}} 次</text>
+            <text class="history-score" wx:if="{{item.lastAttempt}}">最近 {{item.scoreText}}</text>
+            <text class="muted" wx:else>尚未练习</text>
+          </view>
+          <view class="history-date">{{item.dateText}}</view>
+        </view>
+      </view>
+      <view class="empty-state" wx:else>还没有题集记录</view>
+    </block>
+
+    <block wx:else>
+      <view class="history-list" wx:if="{{hasShares}}">
+        <view class="history-card" hover-class="history-card-active" wx:for="{{shares}}" wx:key="id" data-id="{{item.id}}" bindtap="openShare">
+          <view class="history-card-header">
+            <view class="history-title">{{item.name}}</view>
+            <text class="tag {{item.expired ? 'tag-expired' : 'tag-shared'}}">{{item.expired ? '已过期' : '分享中'}}</text>
+          </view>
+          <view class="history-stats">
+            <text>{{item.questionCount}} 道题</text>
+            <text>收到 {{item.resultCount}} 次答题</text>
+          </view>
+          <view class="history-date">{{item.dateText}}</view>
+        </view>
+      </view>
+      <view class="empty-state" wx:else>还没有账号内分享记录</view>
+    </block>
+  </block>
+</block>
+
+<view class="modal" wx:if="{{loginModalVisible}}">
+  <view class="modal-mask" bindtap="closeLoginModal"></view>
+  <view class="modal-content history-login-modal">
+    <view class="login-brand">拾</view>
+    <view class="modal-title">登录拾知猫</view>
+    <view class="modal-desc">继续查看你的题集和练习记录</view>
+    <view class="login-divider"><text>手机号登录</text></view>
+    <view class="login-phone-field">
+      <text class="country-code">+86</text>
+      <input type="number" maxlength="11" value="{{loginPhone}}" placeholder="请输入手机号" bindinput="onLoginPhoneInput" focus />
+    </view>
+    <view class="login-status {{loginError ? 'history-error' : ''}}">{{loginError || '手机号即为你的账号'}}</view>
+    <button class="btn btn-primary btn-block manual-login-submit" bindtap="submitPhoneLogin" loading="{{loggingIn}}" disabled="{{loggingIn}}">登录并继续</button>
+    <button class="modal-close login-cancel" bindtap="closeLoginModal" disabled="{{loggingIn}}">暂不登录</button>
+  </view>
+</view>

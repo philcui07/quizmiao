@@ -1,2 +1,14 @@
-.vercel
+.DS_Store
+node_modules/
+miniprogram_npm/
+.env
+.env.*
+!.env.example
+.vercel/
 deploy-artifacts/
+project.private.config.json
+.migration-backup/
+**/test-artifacts/*.png
+miniapp/android-preview.png
+*.pem
+*.key

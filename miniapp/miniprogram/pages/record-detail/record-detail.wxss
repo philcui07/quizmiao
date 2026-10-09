@@ -1,0 +1,14 @@
+.record-status { color: var(--text3); text-align: center; padding: 48px 16px; font-size: 14px; }
+.record-error { color: var(--danger); }
+.record-summary { text-align: center; }
+.record-title { font-size: 18px; font-weight: 700; }
+.record-date { margin-top: 2px; color: var(--text3); font-size: 11px; }
+.record-score { margin-top: 12px; color: var(--primary-d); font-size: 36px; font-weight: 800; line-height: 1.2; }
+.record-score text { margin-left: 8px; color: var(--text3); font-size: 14px; font-weight: 500; }
+.record-meta { margin-top: 8px; color: var(--text2); font-size: 13px; }
+.wrong-card { width: calc(100% - 32px); max-width: 500px; margin: 0 auto 10px; padding: 14px; box-sizing: border-box; border: 1px solid var(--line2); border-radius: 8px; background: var(--card); font-size: 13px; line-height: 1.6; }
+.wrong-title { margin-bottom: 5px; font-size: 14px; font-weight: 600; }
+.wrong-answer { color: var(--danger); }
+.correct-answer { color: var(--primary-d); }
+.explanation { margin-top: 4px; color: var(--text3); font-size: 12px; }
+.perfect-state { width: calc(100% - 32px); max-width: 500px; margin: 0 auto; padding: 32px 16px; box-sizing: border-box; border-radius: 8px; background: var(--card); color: var(--primary-d); text-align: center; font-weight: 600; }

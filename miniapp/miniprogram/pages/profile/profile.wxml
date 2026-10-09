@@ -1,0 +1,46 @@
+<view class="profile-page">
+  <view class="profile-initializing" wx:if="{{!pageReady}}">正在读取账号信息...</view>
+  <view class="card profile-login" wx:elif="{{!user}}">
+    <view class="login-brand">拾</view>
+    <view class="section-title">登录拾知猫</view>
+    <view class="section-desc">登录后同步题集、练习成绩和分享记录</view>
+    <view class="login-divider"><text>手机号登录</text></view>
+    <view class="login-phone-field">
+      <text class="country-code">+86</text>
+      <input type="number" maxlength="11" value="{{loginPhone}}" placeholder="请输入手机号" bindinput="onLoginPhoneInput" />
+    </view>
+    <view class="login-status {{loginError ? 'login-error' : ''}}">{{loginError || '手机号即为你的账号'}}</view>
+    <button class="btn btn-primary btn-block manual-login-submit" bindtap="submitPhoneLogin" loading="{{loggingIn}}" disabled="{{loggingIn}}">登录并继续</button>
+    <view class="security-note">当前版本不验证号码归属，请勿在账号中保存敏感信息</view>
+  </view>
+
+  <block wx:else>
+    <view class="card account-card">
+      <view class="account-avatar">{{avatarText}}</view>
+      <view class="account-copy">
+        <view class="account-name">{{user.nickname || '未设置昵称'}}</view>
+        <view class="account-phone">{{phoneDisplay}}</view>
+      </view>
+    </view>
+
+    <view class="card menu-card">
+      <view class="menu-row" hover-class="menu-row-active" bindtap="openNicknameModal">
+        <view class="menu-title">修改昵称</view>
+        <text class="menu-chevron">›</text>
+      </view>
+      <view class="menu-row danger" hover-class="menu-row-active" bindtap="logout">
+        <view class="menu-title">退出登录</view>
+      </view>
+    </view>
+  </block>
+</view>
+
+<view class="modal" wx:if="{{nicknameModalVisible}}">
+  <view class="modal-mask" bindtap="closeNicknameModal"></view>
+  <view class="modal-content">
+    <view class="modal-title">设置昵称</view>
+    <input class="modal-input" value="{{nicknameInput}}" maxlength="20" placeholder="你的昵称" bindinput="onNicknameInput" focus />
+    <button class="btn btn-primary btn-block modal-primary" bindtap="saveNickname" loading="{{nicknameSaving}}" disabled="{{nicknameSaving}}">保存昵称</button>
+    <button class="modal-close" bindtap="closeNicknameModal" disabled="{{nicknameSaving}}">取消</button>
+  </view>
+</view>

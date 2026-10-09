@@ -1,0 +1,23 @@
+.section-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+.history-status, .empty-state { color: var(--text3); text-align: center; padding: 48px 16px; font-size: 14px; }
+.history-error { color: var(--danger); }
+.empty-state.compact { padding: 24px 16px; }
+.history-detail { padding-bottom: 28px; }
+.history-detail-head { margin-top: 16px; }
+.history-detail-title { font-size: 18px; }
+.history-date { color: var(--text3); font-size: 11px; margin-top: 4px; }
+.detail-meta { margin-top: 12px; color: var(--text2); font-size: 13px; }
+.history-actions { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-top: 14px; box-sizing: border-box; }
+.history-actions .btn { width: 100%; min-width: 0; margin: 0; padding-left: 8px; padding-right: 8px; box-sizing: border-box; }
+.attempt-card { display: block; width: auto; max-width: none; min-height: 64px; margin: 0 16px 10px; padding: 12px 14px; background: var(--card); border: 1px solid var(--line2); border-radius: 8px; box-sizing: border-box; color: var(--text); text-align: left; }
+.attempt-card-active { background: var(--line2); }
+.attempt-summary { min-height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.attempt-person { min-width: 0; flex: 1; }
+.history-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
+.attempt-score { color: var(--primary-d); font-weight: 700; white-space: nowrap; text-align: right; }
+.attempt-score text { display: block; color: var(--text3); font-size: 11px; font-weight: 400; }
+.record-chevron { flex: 0 0 auto; color: var(--text3); font-size: 24px; line-height: 1; }
+.history-question-list { padding: 0 16px; }
+.history-question { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 10px; font-size: 13px; line-height: 1.5; box-sizing: border-box; }
+.history-question-title { font-size: 14px; font-weight: 600; }
+.history-answer { color: var(--primary-d); font-size: 12px; margin-top: 5px; }
