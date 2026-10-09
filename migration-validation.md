@@ -15,4 +15,4 @@
 
 本次浏览器证据位于本地 `.migration-backup/validation/browser-smoke.json` 及对应 `web-*-home.png`、`web-*-login.png`。历史测试截图、部署压缩包和私有开发者工具配置不上传。
 
-迁移将对所有纳入版本管理的现有 Web/Miniapp 文件校验内容哈希，确认迁移没有修改业务代码，并在上传后读取远端分支/提交验证。验证摘要写入本地 `.migration-backup/validation/git-migration.json`。
+已对所有纳入版本管理的现有 Web/Miniapp 文件校验内容哈希：92 个既有文件内容不变；统一仓库共 97 个文件，无子模块。上传后重新从 GitHub 克隆完整交接分支，再次验证 92 个文件的哈希与全部根目录交接文档，并通过 Git 对象完整性检查。三个新增远端分支已核验；旧 `main` 和 `v1.1.1-dev` 远端提交未变。验证摘要写入本地 `.migration-backup/validation/git-migration.json`。
